@@ -4,4 +4,11 @@
     <style name="Theme.Senda" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/senda_background</item>
     </style>
+
+    <!-- Android 12 SplashScreen API (core-splashscreen backports it to API 26). -->
+    <style name="Theme.Senda.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/senda_indigo</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.Senda</item>
+    </style>
 </resources>

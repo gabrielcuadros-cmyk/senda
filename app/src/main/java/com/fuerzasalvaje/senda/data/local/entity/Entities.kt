@@ -1,5 +1,6 @@
 package com.fuerzasalvaje.senda.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -44,6 +45,9 @@ data class EvaluationEntity(
     val examType: String?,
     val syllabus: String?,
     val syllabusPdfPath: String?,
+    /** Markdown of the exam or lab PDF that the AI reads (schema v4). */
+    val pdfMarkdown: String? = null,
+    @ColumnInfo(defaultValue = "0") val pdfSummarized: Boolean = false,
     // Lab
     val guideNumber: String?,
     val requiredTools: List<String>,
@@ -129,20 +133,4 @@ data class StressCheckInEntity(
     val ownerUid: String,
     val level: Int,
     val createdAt: Long,
-)
-
-/** Study summary of an evaluation's PDF (id = evaluation id). [extractedText] stays on this device. */
-@Entity(tableName = "pdf_digests", indices = [Index("ownerUid"), Index("courseId")])
-data class PdfDigestEntity(
-    @PrimaryKey val id: String,
-    val ownerUid: String,
-    val courseId: String,
-    val pdfKey: String,
-    val status: String,
-    val pageCount: Int,
-    val extractedChars: Int,
-    val scanned: Boolean,
-    val summary: String,
-    val updatedAt: Long,
-    val extractedText: String?,
 )

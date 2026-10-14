@@ -9,7 +9,6 @@ import androidx.room.TypeConverters
 import com.fuerzasalvaje.senda.data.local.dao.AIRecommendationDao
 import com.fuerzasalvaje.senda.data.local.dao.CourseDao
 import com.fuerzasalvaje.senda.data.local.dao.EvaluationDao
-import com.fuerzasalvaje.senda.data.local.dao.PdfDigestDao
 import com.fuerzasalvaje.senda.data.local.dao.PomodoroSessionDao
 import com.fuerzasalvaje.senda.data.local.dao.QuestionDao
 import com.fuerzasalvaje.senda.data.local.dao.SimulacrumDao
@@ -18,7 +17,6 @@ import com.fuerzasalvaje.senda.data.local.dao.StudyBlockDao
 import com.fuerzasalvaje.senda.data.local.entity.AIRecommendationEntity
 import com.fuerzasalvaje.senda.data.local.entity.CourseEntity
 import com.fuerzasalvaje.senda.data.local.entity.EvaluationEntity
-import com.fuerzasalvaje.senda.data.local.entity.PdfDigestEntity
 import com.fuerzasalvaje.senda.data.local.entity.PomodoroSessionEntity
 import com.fuerzasalvaje.senda.data.local.entity.QuestionEntity
 import com.fuerzasalvaje.senda.data.local.entity.SimulacrumEntity
@@ -36,11 +34,10 @@ import com.fuerzasalvaje.senda.data.local.entity.StudyBlockEntity
         PomodoroSessionEntity::class,
         StudyBlockEntity::class,
         StressCheckInEntity::class,
-        PdfDigestEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
-    // v3: study summaries of PDFs (a new table only).
+    // v3: study summaries of PDFs (a new table only); v4 drops it again (MIGRATION_3_4).
     autoMigrations = [AutoMigration(from = 2, to = 3)],
 )
 @TypeConverters(Converters::class)
@@ -53,7 +50,6 @@ abstract class SendaDatabase : RoomDatabase() {
     abstract fun pomodoroSessionDao(): PomodoroSessionDao
     abstract fun studyBlockDao(): StudyBlockDao
     abstract fun stressCheckInDao(): StressCheckInDao
-    abstract fun pdfDigestDao(): PdfDigestDao
 
     companion object {
         const val NAME = "senda.db"
@@ -62,6 +58,15 @@ abstract class SendaDatabase : RoomDatabase() {
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE questions ADD COLUMN reportReason TEXT")
+            }
+        }
+
+        /** v4: the AI reads Markdown made on the device and stored with the evaluation; AI summaries are gone. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE evaluations ADD COLUMN pdfMarkdown TEXT")
+                db.execSQL("ALTER TABLE evaluations ADD COLUMN pdfSummarized INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("DROP TABLE IF EXISTS pdf_digests")
             }
         }
     }

@@ -11,24 +11,16 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 
-/** A PDF sent to the model as inline data. Not a data class: it holds a byte array. */
-class PdfAttachment(val bytes: ByteArray, val name: String)
-
 /** Strict JSON shape requested with responseSchema. */
 enum class ResponseSchema { QUESTIONS, REVIEW }
 
-/**
- * A provider-agnostic request: system instruction, user text, expected output, thinking and attachments.
- * [timeoutMillis] overrides the usual per-call limit (the PDF summary may take up to 120 s).
- */
+/** A provider-agnostic, text-only request: system instruction, user text, expected output and thinking. */
 data class GeminiPrompt(
     val system: String,
     val user: String,
     val expectsJson: Boolean = false,
     val schema: ResponseSchema? = null,
     val thinking: ThinkingLevel? = null,
-    val attachments: List<PdfAttachment> = emptyList(),
-    val timeoutMillis: Long? = null,
 ) {
     /** Ask for the strict question schema (responseSchema). */
     val questionSchema: Boolean get() = schema == ResponseSchema.QUESTIONS
@@ -81,49 +73,15 @@ class GeminiPrompts(private val json: Json) {
     )
 
     /**
-     * Study summary of one PDF, made once in the background. The text arrives with "[Página N]" markers; a scanned
-     * PDF arrives as an attachment instead. Every point keeps its page or slide so questions can cite it.
-     */
-    fun digestPdf(courseName: String, evaluationTitle: String, text: String, attachments: List<PdfAttachment> = emptyList()) =
-        GeminiPrompt(
-            system = DIGEST_RULES,
-            user = buildString {
-                appendLine("Curso: $courseName")
-                appendLine("Evaluación: $evaluationTitle")
-                if (text.isNotBlank()) {
-                    appendLine("Texto extraído del PDF. Cada [Página N] marca una página; en presentaciones, cada página es una diapositiva:")
-                    appendLine(text)
-                } else {
-                    appendLine("El PDF va adjunto (es escaneado, sin texto seleccionable). Lee su contenido.")
-                }
-                appendLine()
-                appendLine("Escribe un resumen de estudio de este material para preparar preguntas de examen, con estas secciones:")
-                appendLine("## Conceptos clave")
-                appendLine("## Definiciones")
-                appendLine("## Fórmulas")
-                appendLine("## Datos numéricos")
-                appendLine("## Casos y ejemplos")
-                appendLine("Reglas:")
-                appendLine("1. Cada punto es una viñeta breve y termina con su fuente entre paréntesis: (diap. N) o (pág. N), según el marcador.")
-                appendLine("2. Copia literalmente cifras, unidades, fórmulas y nombres propios. No inventes nada que no esté en el material.")
-                appendLine("3. Los casos y ejemplos conservan sus datos para poder plantear preguntas de aplicación.")
-                appendLine("4. Omite las secciones sin contenido. Sin introducción ni conclusión.")
-                append("5. Máximo 2500 palabras, en español.")
-            },
-            thinking = ThinkingLevel.LOW,
-            attachments = attachments,
-            timeoutMillis = RetryPolicy.DIGEST_TIMEOUT_MILLIS,
-        )
-
-    /**
-     * One batch of questions (HU-15). Every question must come from the syllabus and the PDF study summaries, whose
-     * concrete data and cases come first. Low thinking: speed matters, the review checks the result.
+     * One batch of questions (HU-15). Every question must come from the syllabus and the PDF Markdown, whose
+     * concrete data and cases come first and are cited by slide or page. Low thinking: speed matters, the review
+     * checks the result.
      */
     fun generateQuestions(
         courseName: String,
         syllabus: String,
         count: Int,
-        studyDigest: String = "",
+        pdfMarkdown: String = "",
         batchIndex: Int = 0,
         batchCount: Int = 1,
         avoidStatements: List<String> = emptyList(),
@@ -133,7 +91,7 @@ class GeminiPrompts(private val json: Json) {
             system = QUESTION_WRITER_RULES,
             user = buildString {
                 appendLine("Curso: $courseName")
-                appendMaterial(syllabus, studyDigest)
+                appendMaterial(syllabus, pdfMarkdown)
                 if (batchCount > 1) {
                     appendLine()
                     appendLine(
@@ -149,12 +107,12 @@ class GeminiPrompts(private val json: Json) {
                 }
                 appendLine()
                 appendLine("Genera exactamente $count preguntas de simulacro con estas reglas:")
-                appendLine("1. Basa CADA pregunta en el temario y en el resumen del PDF. Si hay resumen, prioriza sus datos numéricos, fórmulas y casos concretos.")
+                appendLine("1. Basa CADA pregunta en el temario y en el contenido del PDF. Si hay contenido del PDF, prioriza sus datos numéricos, fórmulas y casos concretos.")
                 appendLine("2. Tipos: ${mix.conceptual} conceptuales y ${mix.applied} de aplicación o cálculo (casos con datos numéricos cuando el tema lo permita). Las de aplicación van como caso: scenario con el enunciado del caso y statement con la pregunta.")
                 appendLine("3. Dificultad: ${mix.easy} fácil(es), ${mix.medium} media(s) y ${mix.hard} difícil(es).")
                 appendLine("4. Exactamente 4 opciones del mismo tipo y de longitud parecida. Los distractores deben ser plausibles y basados en errores comunes de estudiantes. Prohibido \"todas las anteriores\" y \"ninguna de las anteriores\".")
                 appendLine("5. Una sola respuesta correcta, sin ambigüedad. Varía su posición: reparte la correcta entre las opciones 0, 1, 2 y 3.")
-                appendLine("6. explanation: 2 a 4 oraciones con por qué la correcta es correcta y por qué el distractor más tentador es incorrecto. No menciones letras ni números de opción. Si la pregunta sale del resumen del PDF, termina con su fuente tal como aparece en el resumen, por ejemplo \"Fuente: diap. 4\" o \"Fuente: pág. 12\".")
+                appendLine("6. explanation: 2 a 4 oraciones con por qué la correcta es correcta y por qué el distractor más tentador es incorrecto. No menciones letras ni números de opción. Si la pregunta sale del contenido del PDF, termina con su fuente según la sección de donde salió: \"Fuente: diap. N\" para \"## Diapositiva N\" o \"Fuente: pág. N\" para \"## Página N\".")
                 appendLine("7. Español neutro, sin errores de ortografía, unidades del Sistema Internacional.")
                 append("correctOptionIndex va de 0 a 3. scenario es null cuando la pregunta no es un caso.")
             },
@@ -169,12 +127,12 @@ class GeminiPrompts(private val json: Json) {
         courseName: String,
         syllabus: String,
         questions: List<GeneratedQuestion>,
-        studyDigest: String = "",
+        pdfMarkdown: String = "",
     ) = GeminiPrompt(
         system = REVIEWER_RULES,
         user = buildString {
             appendLine("Curso: $courseName")
-            appendMaterial(syllabus, studyDigest)
+            appendMaterial(syllabus, pdfMarkdown)
             appendLine()
             appendLine("Revisa estas preguntas de simulacro (index empieza en 0):")
             appendLine(json.encodeToString(questions.mapIndexed { i, q -> ReviewInputDto.of(i, q) }))
@@ -193,10 +151,10 @@ class GeminiPrompts(private val json: Json) {
         thinking = ThinkingLevel.MEDIUM,
     )
 
-    private fun StringBuilder.appendMaterial(syllabus: String, studyDigest: String) {
-        if (studyDigest.isNotBlank()) {
-            appendLine("Resumen de estudio de los PDF del curso (cada punto indica su página o diapositiva):")
-            appendLine(studyDigest)
+    private fun StringBuilder.appendMaterial(syllabus: String, pdfMarkdown: String) {
+        if (pdfMarkdown.isNotBlank()) {
+            appendLine("Contenido de los PDF del curso en Markdown. Cada \"## Diapositiva N\" o \"## Página N\" marca de dónde sale el texto:")
+            appendLine(pdfMarkdown)
             appendLine("Basa las preguntas en este contenido; no inventes temas que no aparezcan en él.")
         }
         if (syllabus.isNotBlank()) {
@@ -312,12 +270,6 @@ class GeminiPrompts(private val json: Json) {
             Escribes en español neutro, con ortografía correcta y unidades del Sistema Internacional.
             Solo usas el temario y el material que te dan; nunca inventas datos que no estén en ellos.
             Nunca recomiendes amanecidas ni estudiar entre las 23:00 y las 06:00.
-        """.trimIndent()
-
-        val DIGEST_RULES = """
-            Eres un docente de Tecsup que prepara resúmenes de estudio fieles al material del curso.
-            Escribes en español neutro, con ortografía correcta y unidades del Sistema Internacional.
-            Solo usas el material que te dan; nunca inventas datos, cifras ni ejemplos.
         """.trimIndent()
 
         val REVIEWER_RULES = """

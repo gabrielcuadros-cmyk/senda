@@ -14,8 +14,8 @@ import com.fuerzasalvaje.senda.domain.model.PhaseStatus
 import com.fuerzasalvaje.senda.domain.model.Project
 import com.fuerzasalvaje.senda.domain.model.WeeklyProgress
 import com.fuerzasalvaje.senda.domain.usecase.auth.ObserveSessionUseCase
-import com.fuerzasalvaje.senda.domain.usecase.pdf.ObservePdfDigestsUseCase
-import com.fuerzasalvaje.senda.domain.model.PdfDigest
+import com.fuerzasalvaje.senda.domain.usecase.pdf.EditPdfMarkdownUseCase
+import com.fuerzasalvaje.senda.ui.components.AiContentController
 import com.fuerzasalvaje.senda.domain.usecase.calendar.ObservePrioritiesUseCase
 import com.fuerzasalvaje.senda.domain.usecase.calendar.ObserveWeekUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ChangeEvaluationStatusUseCase
@@ -98,14 +98,13 @@ class HomeViewModel @Inject constructor(
     private val generateTips: GenerateStudyTipsUseCase,
     private val changeStatus: ChangeEvaluationStatusUseCase,
     private val clock: Clock,
-    observePdfDigests: ObservePdfDigestsUseCase,
+    editPdfMarkdown: EditPdfMarkdownUseCase,
 ) : ViewModel() {
 
     val zone: ZoneId get() = clock.zone
 
-    /** PDF summary of each evaluation, for the status line of the detail sheet. */
-    val pdfDigests: StateFlow<Map<String, PdfDigest>> =
-        observePdfDigests().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    /** "Contenido que leerá la IA" in the detail sheet. */
+    val aiContent = AiContentController(editPdfMarkdown, viewModelScope)
     private val selectedId = MutableStateFlow<String?>(null)
     private val tipState = MutableStateFlow(TipUiState())
 
@@ -184,7 +183,10 @@ class HomeViewModel @Inject constructor(
     }
 
     fun open(evaluation: Evaluation) { selectedId.value = evaluation.id }
-    fun close() { selectedId.value = null }
+    fun close() {
+        selectedId.value = null
+        aiContent.clearNotice()
+    }
 
     fun setStatus(evaluation: Evaluation, status: EvaluationStatus) {
         viewModelScope.launch { changeStatus(evaluation, status) }

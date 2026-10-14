@@ -13,6 +13,7 @@ import com.fuerzasalvaje.senda.domain.model.ProjectPhase
 import com.fuerzasalvaje.senda.domain.model.RubricItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.DayOfWeek
 import java.time.Duration
@@ -55,6 +56,18 @@ class EvaluationMappersTest {
         assertEquals(exam, dto.toDomain("e1", localPdfPath = "/data/files/temario.pdf"))
         assertEquals(lab, lab.toDto().toDomain("l1", localPdfPath = "/data/files/guia.pdf"))
         assertEquals(project, project.toDto().toDomain("p1"))
+    }
+
+    @Test
+    fun `the PDF Markdown is kept in Room and synced to Firestore with the evaluation`() {
+        val withText = exam.copy(syllabusPdfMarkdown = "## Diapositiva 1\n- V = I x R", syllabusPdfSummarized = true)
+        val labText = lab.copy(guidePdfMarkdown = "## Página 2\n- T = 2 s")
+        assertEquals(withText, withText.toEntity("uid").toDomain())
+        assertEquals("## Diapositiva 1\n- V = I x R", withText.toDto().pdfMarkdown)
+        assertTrue(withText.toDto().pdfSummarized)
+        // Another device has no local copy of the PDF but gets the text the AI reads.
+        assertEquals(withText.copy(syllabusPdfPath = null), withText.toDto().toDomain("e1"))
+        assertEquals(labText.copy(guidePdfPath = null), labText.toDto().toDomain("l1"))
     }
 
     @Test

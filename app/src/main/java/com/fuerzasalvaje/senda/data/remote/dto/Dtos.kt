@@ -8,7 +8,7 @@ import com.google.firebase.firestore.IgnoreExtraProperties
 
 // Firestore documents under users/{uid}/... The document id is the entity id, so it is not repeated.
 // Firestore maps them by reflection: mutable properties with defaults, no "is" prefixes.
-// Local PDF paths are deliberately absent: files stay on the device (D-11).
+// Local PDF paths are deliberately absent: files stay on the device (D-11). Their Markdown is synced.
 
 @IgnoreExtraProperties
 data class UserDto(
@@ -43,6 +43,9 @@ data class EvaluationDto(
     var room: String? = null,
     var examType: String? = null,
     var syllabus: String? = null,
+    /** Markdown of the exam or lab PDF, made on the device: what the AI reads. */
+    var pdfMarkdown: String? = null,
+    var pdfSummarized: Boolean = false,
     var guideNumber: String? = null,
     var requiredTools: List<String> = emptyList(),
     var modality: String? = null,
@@ -111,17 +114,4 @@ data class StudyBlockDto(
 data class StressCheckInDto(
     var level: Int = 1,
     var createdAt: Long = 0,
-)
-
-/** PDF study summary. The extracted text and the PDF stay on the device; only the summary is synced. */
-@IgnoreExtraProperties
-data class PdfDigestDto(
-    var courseId: String = "",
-    var pdfKey: String = "",
-    var status: String = "READING",
-    var pageCount: Int = 0,
-    var extractedChars: Int = 0,
-    var scanned: Boolean = false,
-    var summary: String = "",
-    var updatedAt: Long = 0,
 )

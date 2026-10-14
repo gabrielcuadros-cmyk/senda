@@ -60,6 +60,12 @@ data class EvaluationFormUiState(
     val endTime: LocalTime? = null,
     val pdfPath: String? = null,
     val importingPdf: Boolean = false,
+    /** "Contenido que leerá la IA": Markdown made on the device from the PDF, editable. */
+    val pdfMarkdown: String = "",
+    val pdfSummarized: Boolean = false,
+    val extractingPdf: Boolean = false,
+    /** The PDF has no readable text (scanned): nothing of it reaches the AI. */
+    val pdfNoText: Boolean = false,
     // Exam
     val examType: ExamType = ExamType.PARTIAL,
     val room: String = "",

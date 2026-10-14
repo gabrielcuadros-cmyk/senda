@@ -12,6 +12,10 @@ import com.fuerzasalvaje.senda.domain.usecase.course.ObserveCoursesUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.DeleteEvaluationUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ObserveEvaluationUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.SaveEvaluationUseCase
+import com.fuerzasalvaje.senda.domain.usecase.pdf.ExtractPdfMarkdownUseCase
+import com.fuerzasalvaje.senda.domain.model.PdfText
+import com.fuerzasalvaje.senda.testing.FakeAiLogger
+import com.fuerzasalvaje.senda.testing.FakePdfTextExtractor
 import com.fuerzasalvaje.senda.testing.FakeCourseRepository
 import com.fuerzasalvaje.senda.testing.FakeDocumentStorage
 import com.fuerzasalvaje.senda.testing.FakeEvaluationRepository
@@ -24,6 +28,7 @@ import com.fuerzasalvaje.senda.ui.evaluation.EvaluationFormUiState
 import com.fuerzasalvaje.senda.ui.evaluation.EvaluationFormViewModel
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -38,6 +43,7 @@ class EvaluationFormViewModelTest {
     private val courses = FakeCourseRepository().apply { seed(course()) }
     private val evaluations = FakeEvaluationRepository()
     private val storage = FakeDocumentStorage()
+    private val extractor = FakePdfTextExtractor()
 
     private fun viewModel(args: Map<String, Any?> = emptyMap()) = EvaluationFormViewModel(
         savedStateHandle = SavedStateHandle(args),
@@ -46,6 +52,7 @@ class EvaluationFormViewModelTest {
         saveEvaluation = SaveEvaluationUseCase(evaluations),
         deleteEvaluation = DeleteEvaluationUseCase(evaluations, storage, FakeStudyBlockRepository()),
         storage = storage,
+        extractPdf = ExtractPdfMarkdownUseCase(extractor, FakeAiLogger(), testClock),
         clock = testClock,
     )
 
@@ -164,5 +171,60 @@ class EvaluationFormViewModelTest {
         }
         assertTrue(evaluations.items.value.isEmpty())
         assertEquals(listOf("/files/pdfs/guia.pdf"), storage.deleted)
+    }
+
+    @Test
+    fun `an attached PDF becomes editable Markdown that is saved with the exam`() = runTest {
+        val vm = viewModel()
+        vm.state.test {
+            awaitUntil { it.courseId == "c1" }
+            vm.onTitle("Parcial de Electricidad")
+            vm.onDate(LocalDate.of(2026, 10, 14))
+            vm.onWeight("30")
+            vm.onPdfPicked("content://temario.pdf")
+            val read = awaitUntil { it.pdfMarkdown.isNotBlank() && !it.extractingPdf }
+            assertTrue(read.pdfMarkdown.startsWith("## Diapositiva 1\n- Ley de Ohm\n- La tensión es V = I x R"))
+            assertFalse(read.pdfNoText)
+            vm.onPdfMarkdown(read.pdfMarkdown + "\n- Nota del alumno: repasar potencia")
+            vm.save()
+            awaitUntil { it.finished }
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        val saved = evaluations.items.value.values.single() as Exam
+        assertEquals("/files/pdfs/copy.pdf", saved.syllabusPdfPath)
+        assertTrue(saved.syllabusPdfMarkdown.contains("## Diapositiva 2\n- Caso de estudio"))
+        assertTrue(saved.syllabusPdfMarkdown.endsWith("- Nota del alumno: repasar potencia"))
+    }
+
+    @Test
+    fun `a PDF without readable text is flagged and leaves no AI content`() = runTest {
+        extractor.result = Result.success(PdfText(listOf("", "3")))
+        val vm = viewModel()
+        vm.state.test {
+            awaitUntil { it.courseId == "c1" }
+            vm.onPdfPicked("content://escaneado.pdf")
+            val state = awaitUntil { it.pdfNoText }
+            assertEquals("", state.pdfMarkdown)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `re-extracting replaces the edited text, and removing the PDF clears it`() = runTest {
+        val vm = viewModel()
+        vm.state.test {
+            awaitUntil { it.courseId == "c1" }
+            vm.onPdfPicked("content://temario.pdf")
+            awaitUntil { it.pdfMarkdown.isNotBlank() && !it.extractingPdf }
+            vm.onPdfMarkdown("texto roto")
+            vm.reextractPdf()
+            awaitUntil { it.pdfMarkdown.startsWith("## Diapositiva 1") && !it.extractingPdf }
+            vm.removePdf()
+            val cleared = awaitUntil { it.pdfPath == null }
+            assertEquals("", cleared.pdfMarkdown)
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertEquals(2, extractor.calls.size)
     }
 }

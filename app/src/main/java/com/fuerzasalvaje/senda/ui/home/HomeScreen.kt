@@ -73,7 +73,7 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val pdfDigests by viewModel.pdfDigests.collectAsStateWithLifecycle()
+    val aiContent by viewModel.aiContent.state.collectAsStateWithLifecycle()
     val zone = viewModel.zone
 
     if (state.loading) {
@@ -164,7 +164,9 @@ fun HomeScreen(
             onStatus = { viewModel.setStatus(evaluation, it) },
             onPhaseStatus = { phase, status -> (evaluation as? Project)?.let { viewModel.setPhaseStatus(it, phase.id, status) } },
             conflicts = state.conflicts.filter { conflict -> conflict.entries.any { it.evaluation.id == evaluation.id } },
-            pdfStatus = pdfDigests[evaluation.id]?.status,
+            aiContent = aiContent,
+            onSaveMarkdown = { viewModel.aiContent.save(evaluation, it) },
+            onReextract = { viewModel.aiContent.reextract(evaluation) },
         )
     }
 }

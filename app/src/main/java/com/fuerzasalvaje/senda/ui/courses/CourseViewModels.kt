@@ -13,9 +13,7 @@ import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
 import com.fuerzasalvaje.senda.domain.usecase.course.DeleteCourseUseCase
 import com.fuerzasalvaje.senda.domain.usecase.course.ObserveCourseUseCase
 import com.fuerzasalvaje.senda.domain.usecase.course.ObserveCoursesUseCase
-import com.fuerzasalvaje.senda.domain.usecase.pdf.ObservePdfDigestsUseCase
-import com.fuerzasalvaje.senda.domain.model.PdfDigestStatus
-import com.fuerzasalvaje.senda.domain.model.courseDigestStatus
+import com.fuerzasalvaje.senda.domain.model.pdfMarkdown
 import com.fuerzasalvaje.senda.domain.usecase.course.SaveCourseUseCase
 import com.fuerzasalvaje.senda.ui.theme.CourseColors
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -35,8 +33,8 @@ import java.time.LocalTime
 import java.util.UUID
 import javax.inject.Inject
 
-/** [pdfStatus] summarizes the course PDFs: reading, retrying, failed or ready for mock exams. */
-data class CourseListItem(val course: Course, val evaluationCount: Int, val pdfStatus: PdfDigestStatus? = null)
+/** [pdfsReady] counts the course PDFs whose text the AI can already read. */
+data class CourseListItem(val course: Course, val evaluationCount: Int, val pdfsReady: Int = 0)
 
 data class CourseListUiState(val loading: Boolean = true, val items: List<CourseListItem> = emptyList())
 
@@ -44,17 +42,14 @@ data class CourseListUiState(val loading: Boolean = true, val items: List<Course
 class CourseListViewModel @Inject constructor(
     observeCourses: ObserveCoursesUseCase,
     evaluations: EvaluationRepository,
-    observePdfDigests: ObservePdfDigestsUseCase,
 ) : ViewModel() {
     val state: StateFlow<CourseListUiState> =
-        combine(observeCourses(), evaluations.observeAll(), observePdfDigests()) { courses, evaluationList, digests ->
+        combine(observeCourses(), evaluations.observeAll()) { courses, evaluationList ->
             val counts = evaluationList.groupingBy { it.courseId }.eachCount()
-            val evaluationIds = evaluationList.map { it.id }.toSet()
-            // Summaries of deleted evaluations do not count.
-            val digestsByCourse = digests.values.filter { it.evaluationId in evaluationIds }.groupBy { it.courseId }
+            val pdfs = evaluationList.filter { it.pdfMarkdown.isNotBlank() }.groupingBy { it.courseId }.eachCount()
             CourseListUiState(
                 loading = false,
-                items = courses.map { CourseListItem(it, counts[it.id] ?: 0, courseDigestStatus(digestsByCourse[it.id].orEmpty())) },
+                items = courses.map { CourseListItem(it, counts[it.id] ?: 0, pdfs[it.id] ?: 0) },
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CourseListUiState())
 }

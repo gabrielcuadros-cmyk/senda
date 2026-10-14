@@ -37,7 +37,12 @@ class PdfBoxTextExtractor @Inject constructor(
                     stripper.endPage = page
                     stripper.getText(document)
                 }
-                Result.success(PdfText(pages))
+                val landscape = document.pages.count { page ->
+                    val box = page.mediaBox
+                    val rotated = page.rotation % 180 != 0
+                    if (rotated) box.height > box.width else box.width > box.height
+                }
+                Result.success(PdfText.of(pages, landscape))
             }
         } catch (e: CancellationException) {
             throw e

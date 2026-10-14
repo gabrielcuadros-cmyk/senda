@@ -2,11 +2,13 @@ package com.fuerzasalvaje.senda.util.gemini
 
 import com.fuerzasalvaje.senda.domain.model.AiError
 import com.fuerzasalvaje.senda.domain.model.PendingStudyItem
+import com.fuerzasalvaje.senda.domain.model.QuestionRequest
 import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
 import com.fuerzasalvaje.senda.testing.FakeAiLogger
+import com.fuerzasalvaje.senda.ui.components.FREE_LIMIT_MESSAGE
+import com.fuerzasalvaje.senda.ui.components.aiErrorMessage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
-import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
@@ -23,85 +25,114 @@ class GeminiRetryTest {
     private val logger = FakeAiLogger()
     private val tips = StudyTipsRequest(3, listOf(PendingStudyItem("Parcial", "Física", 50.0, 20, 4.0)))
 
-    /** Each call takes the next outcome: a text, or an AiError to throw. Records the model used. */
-    private inner class FlakyService(fallback: String = "backup-model", vararg outcomes: Any) :
-        BaseGeminiService(GeminiPrompts(Json), logger, GeminiConfig("key", "main-model", "apikey", fallback)) {
-        private val queue = ArrayDeque(outcomes.toList())
-        val models = mutableListOf<String>()
+    /** Answers per model: each entry is a text or an AiError to throw. Records the models called. */
+    private inner class ChainService(
+        fallbacks: List<String> = listOf("fb-1", "fb-2"),
+        private val script: Map<String, List<Any>>,
+    ) : BaseGeminiService(GeminiPrompts(Json), logger, GeminiConfig("key", "main", "apikey", fallbacks)) {
+        private val queues = script.mapValues { ArrayDeque(it.value) }
+        val calls = mutableListOf<String>()
         override suspend fun send(prompt: GeminiPrompt, model: String): String {
-            models += model
-            return when (val next = queue.removeFirst()) {
+            calls += model
+            return when (val next = queues.getValue(model).removeFirst()) {
                 is AiError -> throw next
                 else -> next as String
             }
         }
     }
 
-    private fun overloaded() = AiError.Server(503, "The model is overloaded")
+    private fun busy() = AiError.Server(503, "The model is overloaded")
+    private fun rate() = AiError.QuotaExceeded("Too many requests")
+    private fun daily() = AiError.QuotaExceeded("Quota GenerateRequestsPerDayPerProjectPerModel-FreeTier exceeded", daily = true)
+    private fun times(n: Int, error: () -> AiError) = List(n) { error() }
 
     @Test
     fun `503 is retried after 2 and 5 seconds until it succeeds`() = runTest {
-        val service = FlakyService("backup-model", overloaded(), AiError.Server(500, "internal"), "Consejo")
+        val service = ChainService(script = mapOf("main" to listOf(busy(), AiError.Server(500, "internal"), "Consejo")))
 
         assertEquals("Consejo", service.studyTips(tips).getOrThrow())
-        assertEquals(listOf("main-model", "main-model", "main-model"), service.models)
+        assertEquals(listOf("main", "main", "main"), service.calls)
         assertEquals(7_000, currentTime)
         assertFalse(service.retrying.value)
     }
 
     @Test
-    fun `after 3 retries the fallback model is used`() = runTest {
-        val service = FlakyService(
-            "backup-model",
-            overloaded(), AiError.QuotaExceeded("rate"), overloaded(), AiError.Server(500, "x"), "Desde el respaldo",
+    fun `each model gets its retries before the next one in the chain`() = runTest {
+        val service = ChainService(
+            script = mapOf(
+                "main" to times(4, ::busy),
+                "fb-1" to listOf(rate(), busy(), busy(), busy()),
+                "fb-2" to listOf("Desde fb-2"),
+            ),
         )
 
-        assertEquals("Desde el respaldo", service.studyTips(tips).getOrThrow())
-        assertEquals(listOf("main-model", "main-model", "main-model", "main-model", "backup-model"), service.models)
-        assertEquals(17_000, currentTime) // 2 s + 5 s + 10 s
-        assertTrue(logger.lines.any { it.contains("using fallback model backup-model") })
+        assertEquals("Desde fb-2", service.studyTips(tips).getOrThrow())
+        assertEquals(List(4) { "main" } + List(4) { "fb-1" } + "fb-2", service.calls)
+        assertEquals(34_000, currentTime) // 17 s of waits per model
+        assertTrue(logger.lines.any { it.contains("Switching to fallback model fb-1 (1/2)") })
+        assertTrue(logger.lines.any { it.contains("Switching to fallback model fb-2 (2/2)") })
     }
 
     @Test
-    fun `when the fallback also fails its error is reported`() = runTest {
-        val service = FlakyService("backup-model", overloaded(), overloaded(), overloaded(), overloaded(), AiError.QuotaExceeded("limit"))
+    fun `a daily quota moves to the next model without waiting`() = runTest {
+        val service = ChainService(script = mapOf("main" to listOf(daily()), "fb-1" to listOf("Desde fb-1"), "fb-2" to emptyList()))
 
-        assertTrue(service.studyTips(tips).exceptionOrNull() is AiError.QuotaExceeded)
-        assertEquals(5, service.models.size)
+        assertEquals("Desde fb-1", service.studyTips(tips).getOrThrow())
+        assertEquals(listOf("main", "fb-1"), service.calls)
+        assertEquals(0, currentTime)
+        assertTrue(logger.lines.any { it.contains("Daily quota exhausted for main") })
     }
 
     @Test
-    fun `without a fallback model the last error is returned after the retries`() = runTest {
-        val service = FlakyService("", overloaded(), overloaded(), overloaded(), overloaded())
+    fun `when every model ends with 429 the free limit is reached`() = runTest {
+        val service = ChainService(
+            script = mapOf("main" to times(4, ::rate), "fb-1" to listOf(daily()), "fb-2" to listOf(daily())),
+        )
+
+        val error = service.studyTips(tips).exceptionOrNull()
+
+        assertTrue(error is AiError.FreeLimitReached)
+        assertEquals(listOf("main", "fb-1", "fb-2"), (error as AiError.FreeLimitReached).models)
+        assertEquals("$FREE_LIMIT_MESSAGE. Vuelve a intentarlo mañana.", aiErrorMessage(error, "x"))
+        assertFalse(service.retrying.value)
+    }
+
+    @Test
+    fun `if the last model fails with 503 that error is reported, not the free limit`() = runTest {
+        val service = ChainService(
+            fallbacks = listOf("fb-1"),
+            script = mapOf("main" to listOf(daily()), "fb-1" to times(4, ::busy)),
+        )
 
         val error = service.studyTips(tips).exceptionOrNull()
 
         assertTrue(error is AiError.Server && error.code == 503)
-        assertEquals(4, service.models.size)
+        assertEquals(5, service.calls.size)
     }
 
     @Test
-    fun `other errors are not retried`() = runTest {
-        val service = FlakyService("backup-model", AiError.Configuration("API key not valid"))
+    fun `without fallbacks the last error is returned after the retries`() = runTest {
+        val service = ChainService(fallbacks = emptyList(), script = mapOf("main" to times(4, ::busy)))
+
+        assertTrue(service.studyTips(tips).exceptionOrNull() is AiError.Server)
+        assertEquals(4, service.calls.size)
+    }
+
+    @Test
+    fun `other errors stop the chain immediately`() = runTest {
+        val service = ChainService(script = mapOf("main" to listOf(AiError.Configuration("API key not valid"))))
 
         assertTrue(service.studyTips(tips).exceptionOrNull() is AiError.Configuration)
-        assertEquals(listOf("main-model"), service.models)
+        assertEquals(listOf("main"), service.calls)
         assertEquals(0, currentTime)
-
-        val notFound = FlakyService("backup-model", AiError.Server(404, "not found"))
-        assertTrue(notFound.studyTips(tips).isFailure)
-        assertEquals(1, notFound.models.size)
     }
 
     @Test
-    fun `retrying is true only while waiting for a retry`() = runTest {
-        val service = FlakyService("backup-model", overloaded(), "Listo")
+    fun `retrying stays on while switching models and turns off at the end`() = runTest {
+        val service = ChainService(script = mapOf("main" to listOf(daily()), "fb-1" to listOf(busy(), "Listo"), "fb-2" to emptyList()))
 
         val call = async { service.studyTips(tips) }
         runCurrent()
-        assertTrue(service.retrying.value)
-
-        advanceTimeBy(1_000)
         assertTrue(service.retrying.value)
 
         advanceUntilIdle()
@@ -110,13 +141,19 @@ class GeminiRetryTest {
     }
 
     @Test
-    fun `question generation also retries before parsing`() = runTest {
+    fun `question generation also uses the chain`() = runTest {
         val json = """{"questions":[{"statement":"¿A?","options":["1","2","3","4"],"correctOptionIndex":0,"explanation":"x"}]}"""
-        val service = FlakyService("backup-model", overloaded(), json)
+        val service = ChainService(script = mapOf("main" to listOf(daily()), "fb-1" to listOf(json), "fb-2" to emptyList()))
 
-        val questions = service.generateQuestions(com.fuerzasalvaje.senda.domain.model.QuestionRequest("Física", "Cinemática", 10))
+        assertEquals(1, service.generateQuestions(QuestionRequest("Física", "Cinemática", 10)).getOrThrow().size)
+        assertEquals(listOf("main", "fb-1"), service.calls)
+    }
 
-        assertEquals(1, questions.getOrThrow().size)
-        assertEquals(2_000, currentTime)
+    @Test
+    fun `model list and daily quota parsing`() {
+        assertEquals(listOf("gemini-3-flash-preview", "gemini-2.5-flash"), GeminiConfig.parseModels(" gemini-3-flash-preview, ,gemini-2.5-flash,gemini-2.5-flash "))
+        assertTrue(GeminiConfig.parseModels("").isEmpty())
+        assertTrue(isDailyQuota("""{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}"""))
+        assertFalse(isDailyQuota("""{"quotaId": "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"}"""))
     }
 }

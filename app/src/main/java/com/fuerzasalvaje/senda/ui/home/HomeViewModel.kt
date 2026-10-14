@@ -22,6 +22,7 @@ import com.fuerzasalvaje.senda.domain.usecase.wellbeing.GenerateStudyTipsUseCase
 import com.fuerzasalvaje.senda.domain.usecase.wellbeing.ObserveLatestTipUseCase
 import com.fuerzasalvaje.senda.domain.usecase.wellbeing.ObserveTodayStressUseCase
 import com.fuerzasalvaje.senda.domain.usecase.wellbeing.SaveStressCheckInUseCase
+import com.fuerzasalvaje.senda.ui.components.aiErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -145,7 +146,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             generateTips(stress).fold(
                 onSuccess = { tipState.value = TipUiState() },
-                onFailure = { tipState.update { TipUiState(error = TIP_ERROR) } },
+                onFailure = { error -> tipState.update { TipUiState(error = aiErrorMessage(error, TIP_ERROR)) } },
             )
         }
     }

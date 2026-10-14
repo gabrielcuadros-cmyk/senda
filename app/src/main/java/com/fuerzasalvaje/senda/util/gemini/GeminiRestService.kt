@@ -73,7 +73,7 @@ class GeminiRestService @Inject constructor(
         if (code !in 200..299) {
             val error = runCatching { json.decodeFromString<ErrorResponse>(responseText).error }.getOrNull()
             logger.warn("Gemini HTTP $code status=${error?.status} model=$model: ${error?.message ?: "no message"}")
-            throw httpError(code, error)
+            throw httpError(code, error, responseText)
         }
 
         val parsed = try {
@@ -91,10 +91,11 @@ class GeminiRestService @Inject constructor(
         return text
     }
 
-    private fun httpError(code: Int, error: ErrorBody?): AiError {
+    /** [body] is scanned for per-day quota ids such as "GenerateRequestsPerDayPerProjectPerModel-FreeTier". */
+    private fun httpError(code: Int, error: ErrorBody?, body: String): AiError {
         val message = error?.message.orEmpty()
         return when {
-            code == 429 || error?.status == "RESOURCE_EXHAUSTED" -> AiError.QuotaExceeded(message)
+            code == 429 || error?.status == "RESOURCE_EXHAUSTED" -> AiError.QuotaExceeded(message, daily = isDailyQuota(body))
             code == 401 || code == 403 || code == 404 || message.contains("API key", ignoreCase = true) ->
                 AiError.Configuration(message)
             else -> AiError.Server(code, message)

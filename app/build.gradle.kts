@@ -38,7 +38,12 @@ android {
 
         buildConfigField("String", "GEMINI_API_KEY", localProperty("GEMINI_API_KEY", "").asBuildConfigString())
         buildConfigField("String", "GEMINI_MODEL", localProperty("GEMINI_MODEL", "gemini-3.5-flash").asBuildConfigString())
-        buildConfigField("String", "GEMINI_FALLBACK_MODEL", localProperty("GEMINI_FALLBACK_MODEL", "gemini-3-flash").asBuildConfigString())
+        // Comma-separated chain, tried in order. GEMINI_FALLBACK_MODEL (single) is still read for compatibility.
+        buildConfigField(
+            "String",
+            "GEMINI_FALLBACK_MODELS",
+            localProperty("GEMINI_FALLBACK_MODELS", localProperty("GEMINI_FALLBACK_MODEL", "gemini-3-flash")).asBuildConfigString(),
+        )
         buildConfigField("String", "AI_PROVIDER", localProperty("AI_PROVIDER", "apikey").asBuildConfigString())
     }
 

@@ -12,6 +12,7 @@ import com.fuerzasalvaje.senda.domain.repository.SimulacrumRepository
 import com.fuerzasalvaje.senda.domain.usecase.course.ObserveCoursesUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.ExplainMistakeUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.ObserveSimulacrumUseCase
+import com.fuerzasalvaje.senda.ui.components.aiErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -94,7 +95,7 @@ class SimulacrumResultViewModel @Inject constructor(
             explanations.update {
                 it + (item.question.id to result.fold(
                     onSuccess = { text -> ExplanationState(text = text) },
-                    onFailure = { ExplanationState(error = EXPLAIN_ERROR) },
+                    onFailure = { error -> ExplanationState(error = aiErrorMessage(error, EXPLAIN_ERROR)) },
                 ))
             }
         }

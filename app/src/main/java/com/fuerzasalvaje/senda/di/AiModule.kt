@@ -26,7 +26,7 @@ object AiModule {
         apiKey = BuildConfig.GEMINI_API_KEY,
         model = BuildConfig.GEMINI_MODEL,
         provider = BuildConfig.AI_PROVIDER,
-        fallbackModel = BuildConfig.GEMINI_FALLBACK_MODEL,
+        fallbackModels = GeminiConfig.parseModels(BuildConfig.GEMINI_FALLBACK_MODELS),
     )
 
     @Provides

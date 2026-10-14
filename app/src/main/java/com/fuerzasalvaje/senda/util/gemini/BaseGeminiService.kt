@@ -37,36 +37,69 @@ abstract class BaseGeminiService(
     }
 
     /**
-     * 500, 503 and 429 are retried after 2 s, 5 s and 10 s; if they keep failing, one attempt goes
-     * to the fallback model. Any other error fails immediately.
+     * Tries the main model and then each fallback in order. Every model gets the 2 s / 5 s / 10 s
+     * retries for 429, 500 and 503, except a daily quota 429, which moves on at once because
+     * waiting cannot fix it. Any other error fails immediately. When every model ends with 429,
+     * the result is [AiError.FreeLimitReached].
      */
     private suspend fun generateText(prompt: GeminiPrompt): String {
-        var lastError: AiError
-        try {
-            return send(prompt, config.model)
-        } catch (e: AiError) {
-            if (!e.isRetryable()) throw e
-            lastError = e
+        val chain = (listOf(config.model) + config.fallbackModels).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val failures = mutableListOf<AiError>()
+        var markedRetrying = false
+        val markRetrying = {
+            if (!markedRetrying) {
+                markedRetrying = true
+                changeRetrying(+1)
+            }
         }
-        changeRetrying(+1)
         try {
-            for ((index, wait) in retryPolicy.delaysMillis.withIndex()) {
-                logger.warn("Gemini busy (${lastError.describe()}); retry ${index + 1}/${retryPolicy.delaysMillis.size} in ${wait / 1000} s")
-                delay(wait)
+            for ((index, model) in chain.withIndex()) {
+                if (index > 0) {
+                    markRetrying()
+                    logger.warn("Switching to fallback model $model ($index/${chain.size - 1}) after ${failures.last().describe()}")
+                }
                 try {
-                    return send(prompt, config.model)
+                    return sendWithRetries(prompt, model, markRetrying)
                 } catch (e: AiError) {
                     if (!e.isRetryable()) throw e
-                    lastError = e
+                    failures += e
                 }
             }
-            val fallback = config.fallbackModel.trim()
-            if (fallback.isEmpty() || fallback == config.model) throw lastError
-            logger.warn("Gemini still busy after ${retryPolicy.delaysMillis.size} retries; using fallback model $fallback")
-            return send(prompt, fallback)
+            if (failures.all { it is AiError.QuotaExceeded }) {
+                logger.warn("Every model hit its quota: ${chain.joinToString()}")
+                throw AiError.FreeLimitReached(chain)
+            }
+            throw failures.last()
         } finally {
-            changeRetrying(-1)
+            if (markedRetrying) changeRetrying(-1)
         }
+    }
+
+    /** One model with its retries; rethrows the last retryable error when they run out. */
+    private suspend fun sendWithRetries(prompt: GeminiPrompt, model: String, onRetry: () -> Unit): String {
+        var lastError: AiError
+        try {
+            return send(prompt, model)
+        } catch (e: AiError) {
+            if (!e.isRetryable() || e.isDailyQuota()) throw e.also { logDailyQuota(it, model) }
+            lastError = e
+        }
+        for ((index, wait) in retryPolicy.delaysMillis.withIndex()) {
+            onRetry()
+            logger.warn("Gemini busy (${lastError.describe()}, model=$model); retry ${index + 1}/${retryPolicy.delaysMillis.size} in ${wait / 1000} s")
+            delay(wait)
+            try {
+                return send(prompt, model)
+            } catch (e: AiError) {
+                if (!e.isRetryable() || e.isDailyQuota()) throw e.also { logDailyQuota(it, model) }
+                lastError = e
+            }
+        }
+        throw lastError
+    }
+
+    private fun logDailyQuota(error: AiError, model: String) {
+        if (error.isDailyQuota()) logger.warn("Daily quota exhausted for $model; no retries")
     }
 
     private fun AiError.isRetryable(): Boolean = when (this) {
@@ -75,8 +108,10 @@ abstract class BaseGeminiService(
         else -> false
     }
 
+    private fun AiError.isDailyQuota(): Boolean = this is AiError.QuotaExceeded && daily
+
     private fun AiError.describe(): String = when (this) {
-        is AiError.QuotaExceeded -> "HTTP 429"
+        is AiError.QuotaExceeded -> if (daily) "HTTP 429 daily quota" else "HTTP 429"
         is AiError.Server -> "HTTP $code"
         else -> javaClass.simpleName
     }
@@ -160,3 +195,7 @@ abstract class BaseGeminiService(
         }
     }
 }
+
+/** Gemini names per-day quotas with "PerDay" in the quota id; the message may also say "per day". */
+fun isDailyQuota(text: String): Boolean =
+    text.contains("PerDay", ignoreCase = true) || text.contains("per day", ignoreCase = true)

@@ -5,19 +5,22 @@ class GeminiConfig(
     val apiKey: String,
     val model: String,
     val provider: String,
-    /** Used when the main model keeps failing with 500, 503 or 429 after every retry. */
-    val fallbackModel: String = "",
+    /** Tried in order when a model keeps failing with 429, 500 or 503 (after its retries). */
+    val fallbackModels: List<String> = emptyList(),
 ) {
     val hasApiKey: Boolean get() = apiKey.isNotBlank()
 
     // Never expose the key through logs or crash reports.
     override fun toString(): String =
-        "GeminiConfig(model=$model, fallbackModel=$fallbackModel, provider=$provider, " +
+        "GeminiConfig(model=$model, fallbackModels=$fallbackModels, provider=$provider, " +
             "apiKey=${if (hasApiKey) "***" else "<empty>"})"
 
     companion object {
         const val PROVIDER_API_KEY = "apikey"
         const val PROVIDER_FIREBASE = "firebase"
+
+        /** "a, b,,c " -> [a, b, c] */
+        fun parseModels(value: String): List<String> = value.split(",").map { it.trim() }.filter { it.isNotEmpty() }.distinct()
     }
 }
 

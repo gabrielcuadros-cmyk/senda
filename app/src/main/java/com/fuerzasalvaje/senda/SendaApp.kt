@@ -3,6 +3,7 @@ package com.fuerzasalvaje.senda
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.fuerzasalvaje.senda.data.focus.PomodoroController
 import com.fuerzasalvaje.senda.data.notifications.ReminderScheduler
 import com.fuerzasalvaje.senda.data.notifications.SendaNotifier
 import com.fuerzasalvaje.senda.data.sync.SyncManager
@@ -24,11 +25,15 @@ class SendaApp : Application(), Configuration.Provider {
     @Inject
     lateinit var reminderScheduler: ReminderScheduler
 
+    @Inject
+    lateinit var pomodoro: PomodoroController
+
     override fun onCreate() {
         super.onCreate()
         notifier.createChannels()
         syncManager.start()
         reminderScheduler.start()
+        pomodoro.restore()
     }
 
     // Lets WorkManager build @HiltWorker workers; the default initializer is removed in the manifest.

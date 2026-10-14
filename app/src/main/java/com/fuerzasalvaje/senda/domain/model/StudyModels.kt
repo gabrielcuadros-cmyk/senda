@@ -76,7 +76,10 @@ data class PomodoroSession(
     val shortBreakMinutes: Int = SendaRules.POMODORO_SHORT_BREAK_MINUTES,
     val longBreakMinutes: Int = SendaRules.POMODORO_LONG_BREAK_MINUTES,
     val completedCycles: Int = 0,
-)
+) {
+    /** Focus minutes actually completed in this session. */
+    val focusedMinutes: Int get() = completedCycles * focusMinutes
+}
 
 enum class StudyBlockStatus { SUGGESTED, SCHEDULED, DONE }
 
@@ -116,6 +119,7 @@ data class ReminderSetting(
     val dailySummaryEnabled: Boolean = true,
     val restReminderEnabled: Boolean = true,
     val examRoutineEnabled: Boolean = true,
+    val studyBlockAlertsEnabled: Boolean = true,
     val dailySummaryTime: LocalTime = LocalTime.of(7, 30),
     val restReminderTime: LocalTime = LocalTime.of(22, 30),
 ) {

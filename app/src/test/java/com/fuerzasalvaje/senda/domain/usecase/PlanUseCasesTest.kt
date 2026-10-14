@@ -7,6 +7,10 @@ import com.fuerzasalvaje.senda.domain.model.StudyBlockStatus
 import com.fuerzasalvaje.senda.domain.usecase.plan.AcceptStudyBlocksUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.SuggestStudyBlocksUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.pendingStudyMinutes
+import com.fuerzasalvaje.senda.domain.usecase.plan.StudyProgress
+import com.fuerzasalvaje.senda.domain.usecase.plan.studyProgress
+import com.fuerzasalvaje.senda.domain.model.PomodoroSession
+import com.fuerzasalvaje.senda.testing.FakePomodoroSessionRepository
 import com.fuerzasalvaje.senda.domain.usecase.wellbeing.SaveStressCheckInUseCase
 import com.fuerzasalvaje.senda.testing.FakeAvailabilityRepository
 import com.fuerzasalvaje.senda.testing.FakeCourseRepository
@@ -35,9 +39,44 @@ class PlanUseCasesTest {
     private val evaluations = FakeEvaluationRepository()
     private val blocks = FakeStudyBlockRepository()
 
+    private val sessions = FakePomodoroSessionRepository()
+
     private fun suggest() = SuggestStudyBlocksUseCase(
-        evaluations, courses, blocks, FakeAvailabilityRepository(), PriorityEngine(testClock), testClock,
+        evaluations, courses, blocks, FakeAvailabilityRepository(), sessions, PriorityEngine(testClock), testClock,
     )
+
+    @Test
+    fun `completed pomodoros linked to the evaluation reduce the pending minutes`() {
+        val target = exam("e", inHours = 50).copy(studyHours = 3.0)
+        val block = StudyBlock("b", "c1", "e", TEST_NOW, TEST_NOW + Duration.ofMinutes(50), StudyBlockStatus.SCHEDULED)
+        val linked = PomodoroSession(id = "p1", evaluationId = "e", startedAt = TEST_NOW, focusMinutes = 25, completedCycles = 2)
+        val other = linked.copy(id = "p2", evaluationId = "x")
+        val unlinked = linked.copy(id = "p3", evaluationId = null)
+
+        val progress = studyProgress(target, listOf(block), listOf(linked, other, unlinked))
+
+        assertEquals(StudyProgress(totalMinutes = 180, scheduledMinutes = 50, focusMinutes = 50), progress)
+        assertEquals(80, progress.pendingMinutes)
+        assertEquals(80, pendingStudyMinutes(target, listOf(block), listOf(linked)))
+    }
+
+    @Test
+    fun `pending minutes never go below zero`() {
+        val target = exam("e", inHours = 50).copy(studyHours = 1.0)
+        val many = PomodoroSession(id = "p", evaluationId = "e", startedAt = TEST_NOW, focusMinutes = 25, completedCycles = 4)
+
+        assertEquals(0, pendingStudyMinutes(target, emptyList(), listOf(many)))
+    }
+
+    @Test
+    fun `the planner proposes less time after pomodoros`() = kotlinx.coroutines.test.runTest {
+        evaluations.seed(exam("e", inHours = 50).copy(studyHours = 2.0))
+        val before = suggest()().plan.blocks.sumOf { Duration.between(it.startAt, it.endAt).toMinutes() }
+        sessions.seed(PomodoroSession(id = "p", evaluationId = "e", startedAt = TEST_NOW, focusMinutes = 30, completedCycles = 2))
+        val after = suggest()().plan.blocks.sumOf { Duration.between(it.startAt, it.endAt).toMinutes() }
+
+        assertTrue(after < before)
+    }
 
     @Test
     fun `scheduled blocks reduce the pending minutes`() {

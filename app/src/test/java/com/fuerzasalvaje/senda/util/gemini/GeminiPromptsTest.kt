@@ -88,6 +88,17 @@ class GeminiPromptsTest {
     }
 
     @Test
+    fun `study tips prompt includes this week's pomodoro minutes`() {
+        val request = com.fuerzasalvaje.senda.domain.model.StudyTipsRequest(
+            stressLevel = 4,
+            pendingItems = listOf(com.fuerzasalvaje.senda.domain.model.PendingStudyItem("Parcial", "Física", 50.0, 20, 4.0)),
+            weeklyPomodoroMinutes = 125,
+        )
+
+        assertTrue(prompts.studyTips(request).user.contains("Minutos de Pomodoro completados esta semana: 125"))
+    }
+
+    @Test
     fun `config never prints the api key`() {
         val config = GeminiConfig(apiKey = "secret-value", model = "m", provider = "apikey")
         assertFalse(config.toString().contains("secret-value"))

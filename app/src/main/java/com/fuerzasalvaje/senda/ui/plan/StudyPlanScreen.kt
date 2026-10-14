@@ -25,6 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -82,6 +83,7 @@ fun StudyPlanScreen(onBack: () -> Unit, viewModel: StudyPlanViewModel = hiltView
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             HoursSection(state)
+            PendingStudySection(state)
             AvailabilitySection(state, viewModel)
             ProposalSection(state, viewModel.zone, viewModel)
             Spacer(Modifier.height(24.dp))
@@ -115,6 +117,49 @@ private fun HoursSection(state: StudyPlanUiState) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
+        }
+    }
+}
+
+/** Hours still missing per evaluation: the estimate minus accepted blocks and completed Pomodoros. */
+@Composable
+private fun PendingStudySection(state: StudyPlanUiState) {
+    if (state.pendingStudy.isEmpty()) return
+    SendaCard(Modifier.fillMaxWidth()) {
+        Text("Horas pendientes por evaluación", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Se descuentan los bloques aceptados y los Pomodoros vinculados a cada evaluación.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        state.pendingStudy.forEach { line ->
+            val progress = line.progress
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(line.title, style = MaterialTheme.typography.titleSmall)
+                    val details = listOfNotNull(
+                        line.courseName.ifBlank { null },
+                        if (progress.focusMinutes > 0) "${progress.focusMinutes} min con Pomodoro" else null,
+                    )
+                    if (details.isNotEmpty()) {
+                        Text(
+                            details.joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Text(
+                    if (progress.pendingMinutes == 0) "Cubierto"
+                    else "${Formats.hours(progress.pendingMinutes / 60.0)} de ${Formats.hours(progress.totalMinutes / 60.0)}",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+            LinearProgressIndicator(
+                progress = { 1f - progress.pendingMinutes.toFloat() / progress.totalMinutes },
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            )
         }
     }
 }

@@ -1,6 +1,5 @@
 package com.fuerzasalvaje.senda.ui.focus
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,10 +16,9 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.SelfImprovement
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalIconButton
@@ -40,16 +38,17 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.fuerzasalvaje.senda.domain.engine.ExamRoutine
 import com.fuerzasalvaje.senda.domain.model.PomodoroConfig
 import com.fuerzasalvaje.senda.domain.model.PomodoroPhase
+import com.fuerzasalvaje.senda.ui.components.ChipOption
 import com.fuerzasalvaje.senda.ui.components.Formats
+import com.fuerzasalvaje.senda.ui.components.SelectField
 import com.fuerzasalvaje.senda.ui.components.NumberStepper
 import com.fuerzasalvaje.senda.ui.components.Pill
 import com.fuerzasalvaje.senda.ui.components.ProgressRing
 import com.fuerzasalvaje.senda.ui.components.SendaCard
-import com.fuerzasalvaje.senda.ui.components.SendaFilterChip
 import com.fuerzasalvaje.senda.ui.theme.SendaTheme
+import com.fuerzasalvaje.senda.ui.wellbeing.ExamRoutineCard
 import com.fuerzasalvaje.senda.ui.wellbeing.WellbeingContent
 import com.fuerzasalvaje.senda.ui.wellbeing.WellbeingSectionCard
 import java.time.Duration
@@ -71,10 +70,10 @@ fun FocusScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         TimerCard(state, viewModel, onEdit = { editing = true })
-        if (state.timer.step.isBreak && state.timer.step.suggestActivePause) {
+        if (state.run.step.isBreak && state.run.step.suggestActivePause) {
             WellbeingSectionCard(WellbeingContent.activePause, containerColor = SendaTheme.colors.lab)
         }
-        state.routines.forEach { RoutineCard(it, viewModel.zone) }
+        state.routines.forEach { ExamRoutineCard(it, viewModel.zone) }
         LinkCard(
             icon = Icons.Rounded.Favorite,
             title = "Bienestar",
@@ -101,9 +100,9 @@ fun FocusScreen(
 
 @Composable
 private fun TimerCard(state: FocusUiState, viewModel: FocusViewModel, onEdit: () -> Unit) {
-    val timer = state.timer
+    val run = state.run
     val colors = SendaTheme.colors
-    val (label, pillColor) = when (timer.step.phase) {
+    val (label, pillColor) = when (run.step.phase) {
         PomodoroPhase.FOCUS -> "Enfoque" to colors.exam
         PomodoroPhase.SHORT_BREAK -> "Pausa corta" to colors.lab
         PomodoroPhase.LONG_BREAK -> "Pausa larga" to colors.project
@@ -112,21 +111,21 @@ private fun TimerCard(state: FocusUiState, viewModel: FocusViewModel, onEdit: ()
         Row(verticalAlignment = Alignment.CenterVertically) {
             Pill(label, pillColor)
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onEdit, enabled = !timer.running) { Icon(Icons.Rounded.Settings, "Configurar Pomodoro") }
+            IconButton(onClick = onEdit, enabled = !run.running) { Icon(Icons.Rounded.Settings, "Configurar Pomodoro") }
         }
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             ProgressRing(
-                fraction = timer.fraction,
+                fraction = state.fraction,
                 size = 200.dp,
                 strokeWidth = 14.dp,
-                color = if (timer.step.isBreak) colors.easy else MaterialTheme.colorScheme.primary,
-                centerLabel = clock(timer.remaining),
+                color = if (run.step.isBreak) colors.easy else MaterialTheme.colorScheme.primary,
+                centerLabel = clock(state.remaining),
                 caption = cycleCaption(state),
             )
             Spacer(Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                FilledTonalIconButton(onClick = viewModel::reset) { Icon(Icons.Rounded.Refresh, "Reiniciar") }
-                if (timer.running) {
+                FilledTonalIconButton(onClick = viewModel::stop, enabled = !run.isIdle) { Icon(Icons.Rounded.Stop, "Detener") }
+                if (run.running) {
                     Button(onClick = viewModel::pause) {
                         Icon(Icons.Rounded.Pause, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
@@ -136,7 +135,7 @@ private fun TimerCard(state: FocusUiState, viewModel: FocusViewModel, onEdit: ()
                     Button(onClick = viewModel::start) {
                         Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
-                        Text(if (timer.started) "Continuar" else if (timer.step.isBreak) "Empezar pausa" else "Empezar")
+                        Text(if (run.started) "Continuar" else if (run.step.isBreak) "Empezar pausa" else "Empezar")
                     }
                 }
                 FilledTonalIconButton(onClick = viewModel::skip) { Icon(Icons.Rounded.SkipNext, "Saltar") }
@@ -144,28 +143,41 @@ private fun TimerCard(state: FocusUiState, viewModel: FocusViewModel, onEdit: ()
         }
         Spacer(Modifier.height(12.dp))
         Text(
-            "Hoy: ${state.todayPomodoros} ${if (state.todayPomodoros == 1) "Pomodoro" else "Pomodoros"} completados",
+            "Hoy: ${state.todayPomodoros} ${if (state.todayPomodoros == 1) "Pomodoro completado" else "Pomodoros completados"}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (state.courses.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            Text("¿Qué estudias?", style = MaterialTheme.typography.labelLarge)
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                SendaFilterChip("Sin curso", timer.courseId == null) { viewModel.selectCourse(null) }
-                state.courses.forEach { course ->
-                    SendaFilterChip(course.name, timer.courseId == course.id) { viewModel.selectCourse(course.id) }
-                }
-            }
+        Spacer(Modifier.height(10.dp))
+        SelectField(
+            label = "¿Para qué evaluación estudias?",
+            options = listOf(ChipOption<FocusTarget?>(null, "Sin evaluación")) + state.targets.map { ChipOption<FocusTarget?>(it, it.label) },
+            selected = state.target,
+            onSelect = viewModel::select,
+            placeholder = "Sin evaluación",
+            enabled = !run.running,
+        )
+        val progress = state.progress
+        if (progress != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Te faltan ${Formats.hours(progress.pendingMinutes / 60.0)} de ${Formats.hours(progress.totalMinutes / 60.0)} · " +
+                    "${progress.focusMinutes} min hechos con Pomodoro",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else if (run.running) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Detén o pausa para cambiar la evaluación.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
 
 private fun cycleCaption(state: FocusUiState): String {
-    val step = state.timer.step
+    val step = state.run.step
     return when (step.phase) {
         PomodoroPhase.FOCUS -> {
             val left = state.untilLongBreak
@@ -180,29 +192,6 @@ private fun clock(remaining: Duration): String {
     // Round up so the timer shows 25:00 at the start and 00:01 just before the end.
     val seconds = (remaining.toMillis() + 999) / 1000
     return "%02d:%02d".format(seconds / 60, seconds % 60)
-}
-
-@Composable
-private fun RoutineCard(routine: ExamRoutine, zone: ZoneId) {
-    SendaCard(Modifier.fillMaxWidth(), containerColor = SendaTheme.colors.busyDay.copy(alpha = 0.14f)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.SelfImprovement, contentDescription = null, tint = SendaTheme.colors.busyDay)
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Text("Hoy tienes exámenes seguidos", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "${routine.finished.title} termina a las ${Formats.time(routine.finished.end, zone)} y " +
-                        "${routine.next.title} empieza a las ${Formats.time(routine.next.start, zone)}. " +
-                        "Usa la rutina de 15 minutos entre ambos.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        WellbeingContent.betweenExams.steps.forEach {
-            Text("• $it", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 2.dp))
-        }
-    }
 }
 
 @Composable

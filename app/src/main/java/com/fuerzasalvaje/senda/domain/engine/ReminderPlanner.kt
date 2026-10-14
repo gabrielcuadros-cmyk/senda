@@ -3,6 +3,9 @@ package com.fuerzasalvaje.senda.domain.engine
 import com.fuerzasalvaje.senda.domain.model.CalendarEntry
 import com.fuerzasalvaje.senda.domain.model.EvaluationType
 import com.fuerzasalvaje.senda.domain.model.ReminderSetting
+import com.fuerzasalvaje.senda.domain.model.SendaRules
+import com.fuerzasalvaje.senda.domain.model.StudyBlock
+import com.fuerzasalvaje.senda.domain.model.StudyBlockStatus
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -25,6 +28,13 @@ data class ExamRoutine(
     val gap: Duration get() = Duration.between(finished.end, next.start)
 }
 
+/** D-13: alert [SendaRules.STUDY_BLOCK_ALERT_MINUTES] minutes before an accepted study block. */
+data class StudyBlockReminder(
+    val key: String,
+    val triggerAt: Instant,
+    val block: StudyBlock,
+)
+
 object ReminderPlanner {
 
     /** One reminder per pending entry and offset, only those still in the future. */
@@ -45,9 +55,19 @@ object ReminderPlanner {
             .sortedBy { it.triggerAt }
     }
 
+    /** Only scheduled blocks: a removed block no longer exists and a done block needs no alert. */
+    fun studyBlockReminders(blocks: List<StudyBlock>, now: Instant): List<StudyBlockReminder> =
+        blocks
+            .filter { it.status == StudyBlockStatus.SCHEDULED }
+            .mapNotNull { block ->
+                val trigger = block.startAt - Duration.ofMinutes(SendaRules.STUDY_BLOCK_ALERT_MINUTES)
+                if (trigger.isAfter(now)) StudyBlockReminder("block:${block.id}", trigger, block) else null
+            }
+            .sortedBy { it.triggerAt }
+
     /**
-     * Pending exams that follow each other on the same day without overlapping: the routine is offered
-     * when the earlier one ends. Overlapping exams are a clash (HU-07), not a routine.
+     * Pending exams that follow each other on the same day with a gap of 15 to 60 minutes (D-15): the routine
+     * is offered when the earlier one ends. Overlapping exams are a clash (HU-07), not a routine.
      */
     fun examRoutines(entries: List<CalendarEntry>, zone: ZoneId, now: Instant): List<ExamRoutine> =
         entries
@@ -56,8 +76,10 @@ object ReminderPlanner {
             .values
             .flatMap { day ->
                 day.sortedBy { it.start }.zipWithNext().mapNotNull { (first, second) ->
-                    if (second.start.isBefore(first.end)) null
-                    else ExamRoutine("${first.id}>${second.id}", first.end, first, second)
+                    val gap = Duration.between(first.end, second.start).toMinutes()
+                    if (gap in SendaRules.ROUTINE_MIN_GAP_MINUTES..SendaRules.ROUTINE_MAX_GAP_MINUTES) {
+                        ExamRoutine("${first.id}>${second.id}", first.end, first, second)
+                    } else null
                 }
             }
             .filter { it.triggerAt.isAfter(now) }

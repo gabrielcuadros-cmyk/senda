@@ -3,6 +3,7 @@ package com.fuerzasalvaje.senda.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fuerzasalvaje.senda.domain.engine.CourseLoad
+import com.fuerzasalvaje.senda.domain.engine.ExamRoutine
 import com.fuerzasalvaje.senda.domain.engine.PriorityItem
 import com.fuerzasalvaje.senda.domain.model.AIRecommendation
 import com.fuerzasalvaje.senda.domain.model.Conflict
@@ -17,7 +18,12 @@ import com.fuerzasalvaje.senda.domain.usecase.calendar.ObservePrioritiesUseCase
 import com.fuerzasalvaje.senda.domain.usecase.calendar.ObserveWeekUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ChangeEvaluationStatusUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ObserveEvaluationsUseCase
+import com.fuerzasalvaje.senda.domain.usecase.focus.ObserveTodayExamRoutinesUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.ObserveCourseLoadUseCase
+import com.fuerzasalvaje.senda.domain.usecase.plan.ObserveStudyProgressUseCase
+import com.fuerzasalvaje.senda.domain.usecase.plan.StudyProgress
+import com.fuerzasalvaje.senda.ui.navigation.DeepLinks
+import kotlinx.coroutines.flow.filterNotNull
 import com.fuerzasalvaje.senda.domain.usecase.wellbeing.GenerateStudyTipsUseCase
 import com.fuerzasalvaje.senda.domain.usecase.wellbeing.ObserveLatestTipUseCase
 import com.fuerzasalvaje.senda.domain.usecase.wellbeing.ObserveTodayStressUseCase
@@ -54,6 +60,9 @@ data class HomeUiState(
     val criticalCourse: CourseLoad? = null,
     val tip: AIRecommendation? = null,
     val tipState: TipUiState = TipUiState(),
+    /** Study progress by evaluation id: estimate minus blocks and Pomodoro minutes. */
+    val studyProgress: Map<String, StudyProgress> = emptyMap(),
+    val routines: List<ExamRoutine> = emptyList(),
 ) {
     fun courseOf(evaluation: Evaluation): Course? = courses.firstOrNull { it.id == evaluation.courseId }
 
@@ -81,6 +90,8 @@ class HomeViewModel @Inject constructor(
     observeTodayStress: ObserveTodayStressUseCase,
     observeCourseLoad: ObserveCourseLoadUseCase,
     observeLatestTip: ObserveLatestTipUseCase,
+    observeStudyProgress: ObserveStudyProgressUseCase,
+    observeRoutines: ObserveTodayExamRoutinesUseCase,
     private val saveStress: SaveStressCheckInUseCase,
     private val generateTips: GenerateStudyTipsUseCase,
     private val changeStatus: ChangeEvaluationStatusUseCase,
@@ -109,13 +120,15 @@ class HomeViewModel @Inject constructor(
         )
     }
 
+    private val extras = combine(observeStudyProgress(), observeRoutines()) { progress, routines -> progress to routines }
+
     val state: StateFlow<HomeUiState> = combine(
         data,
         observeTodayStress(),
         observeCourseLoad(),
-        observeLatestTip(),
-        tipState,
-    ) { d, stress, load, tip, tipUi ->
+        combine(observeLatestTip(), tipState) { tip, tipUi -> tip to tipUi },
+        extras,
+    ) { d, stress, load, (tip, tipUi), (progress, routines) ->
         HomeUiState(
             loading = false,
             firstName = d.firstName,
@@ -131,8 +144,20 @@ class HomeViewModel @Inject constructor(
             criticalCourse = load.critical.firstOrNull(),
             tip = tip,
             tipState = tipUi,
+            studyProgress = progress,
+            routines = routines,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
+
+    init {
+        // An evaluation reminder opens this evaluation's detail sheet.
+        viewModelScope.launch {
+            DeepLinks.pendingEvaluationDetail.filterNotNull().collect { id ->
+                DeepLinks.consumeEvaluationDetail()
+                selectedId.value = id
+            }
+        }
+    }
 
     fun checkIn(level: Int) {
         viewModelScope.launch { saveStress(level) }

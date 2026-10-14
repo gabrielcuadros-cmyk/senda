@@ -8,6 +8,8 @@ import com.fuerzasalvaje.senda.domain.model.StudyBlock
 import com.fuerzasalvaje.senda.domain.usecase.plan.AcceptStudyBlocksUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.ObserveAvailabilityUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.ObserveCourseLoadUseCase
+import com.fuerzasalvaje.senda.domain.usecase.plan.ObservePendingStudyUseCase
+import com.fuerzasalvaje.senda.domain.usecase.plan.PendingStudyLine
 import com.fuerzasalvaje.senda.domain.usecase.plan.SaveAvailabilityUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.SuggestStudyBlocksUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -43,6 +45,8 @@ data class StudyPlanUiState(
     val report: CourseLoadReport = CourseLoadReport(emptyList(), 0.0),
     val availability: Availability = Availability(),
     val proposal: ProposalUiState = ProposalUiState(),
+    /** Pending evaluations with the hours still missing after blocks and Pomodoros. */
+    val pendingStudy: List<PendingStudyLine> = emptyList(),
 )
 
 /** HU-13 and HU-14: hours per course, availability and the "Aceptar y agendar" proposal. */
@@ -50,6 +54,7 @@ data class StudyPlanUiState(
 class StudyPlanViewModel @Inject constructor(
     observeCourseLoad: ObserveCourseLoadUseCase,
     observeAvailability: ObserveAvailabilityUseCase,
+    observePendingStudy: ObservePendingStudyUseCase,
     private val saveAvailability: SaveAvailabilityUseCase,
     private val suggestBlocks: SuggestStudyBlocksUseCase,
     private val acceptBlocks: AcceptStudyBlocksUseCase,
@@ -60,8 +65,8 @@ class StudyPlanViewModel @Inject constructor(
     private val proposal = MutableStateFlow(ProposalUiState())
 
     val state: StateFlow<StudyPlanUiState> =
-        combine(observeCourseLoad(), observeAvailability(), proposal) { report, availability, proposalState ->
-            StudyPlanUiState(loading = false, report = report, availability = availability, proposal = proposalState)
+        combine(observeCourseLoad(), observeAvailability(), proposal, observePendingStudy()) { report, availability, proposalState, pending ->
+            StudyPlanUiState(loading = false, report = report, availability = availability, proposal = proposalState, pendingStudy = pending)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StudyPlanUiState())
 
     fun onStart(time: LocalTime) = updateAvailability(state.value.availability.copy(start = time))

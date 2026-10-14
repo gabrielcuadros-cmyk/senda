@@ -104,6 +104,14 @@ fun ReminderSettingsScreen(onBack: () -> Unit, viewModel: ReminderSettingsViewMo
             }
             SendaCard(Modifier.fillMaxWidth()) {
                 SwitchRow(
+                    title = "Bloques de estudio",
+                    subtitle = "Aviso 10 minutos antes de cada bloque aceptado en tu plan",
+                    checked = setting.studyBlockAlertsEnabled,
+                    onChange = viewModel::setStudyBlockAlerts,
+                )
+            }
+            SendaCard(Modifier.fillMaxWidth()) {
+                SwitchRow(
                     title = "Resumen diario",
                     subtitle = "A las ${setting.dailySummaryTime}: evaluaciones del día y tu prioridad n.º 1",
                     checked = setting.dailySummaryEnabled,
@@ -119,7 +127,7 @@ fun ReminderSettingsScreen(onBack: () -> Unit, viewModel: ReminderSettingsViewMo
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 SwitchRow(
                     title = "Rutina entre exámenes",
-                    subtitle = "Rutina de 15 minutos cuando tienes exámenes seguidos el mismo día",
+                    subtitle = "Rutina de 15 minutos cuando entre dos exámenes del mismo día hay de 15 a 60 minutos",
                     checked = setting.examRoutineEnabled,
                     onChange = viewModel::setExamRoutine,
                 )

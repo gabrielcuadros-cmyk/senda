@@ -57,12 +57,14 @@ fun ClickableField(
     icon: ImageVector = Icons.Rounded.ArrowDropDown,
     error: String? = null,
     placeholder: String = "",
+    enabled: Boolean = true,
 ) {
     Box(modifier) {
         OutlinedTextField(
             value = value,
             onValueChange = {},
             readOnly = true,
+            enabled = enabled,
             label = { Text(label) },
             placeholder = { Text(placeholder) },
             trailingIcon = { Icon(icon, contentDescription = null) },
@@ -72,7 +74,7 @@ fun ClickableField(
             modifier = Modifier.fillMaxWidth(),
         )
         // Transparent layer: a read-only text field does not report clicks by itself.
-        Box(Modifier.matchParentSize().padding(top = 8.dp).clickable(onClick = onClick))
+        Box(Modifier.matchParentSize().padding(top = 8.dp).clickable(enabled = enabled, onClick = onClick))
     }
 }
 
@@ -86,6 +88,7 @@ fun <T> SelectField(
     modifier: Modifier = Modifier,
     error: String? = null,
     placeholder: String = "Elegir",
+    enabled: Boolean = true,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier) {
@@ -95,6 +98,7 @@ fun <T> SelectField(
             onClick = { expanded = true },
             error = error,
             placeholder = placeholder,
+            enabled = enabled,
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->

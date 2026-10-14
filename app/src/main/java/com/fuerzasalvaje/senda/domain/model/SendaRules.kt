@@ -48,6 +48,12 @@ object SendaRules {
     const val POMODORO_CYCLES_BEFORE_LONG_BREAK = 4
     const val ACTIVE_PAUSE_EVERY_POMODOROS = 2
     const val BETWEEN_EXAMS_ROUTINE_MINUTES = 15
+    /** The routine is offered only when the gap between two exams of the same day is 15 to 60 minutes. */
+    const val ROUTINE_MIN_GAP_MINUTES = 15L
+    const val ROUTINE_MAX_GAP_MINUTES = 60L
+
+    // Reminders (D-13)
+    const val STUDY_BLOCK_ALERT_MINUTES = 10L
 
     // Stress check-in (D-12)
     val STRESS_RANGE = 1..5

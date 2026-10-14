@@ -1,5 +1,8 @@
 package com.fuerzasalvaje.senda.domain.model
 
+import java.time.Duration
+import java.time.Instant
+
 /** Pomodoro durations (D-13): 25/5 with a 15 min long break every 4 cycles, configurable. */
 data class PomodoroConfig(
     val focusMinutes: Int = SendaRules.POMODORO_FOCUS_MINUTES,
@@ -41,4 +44,35 @@ data class PomodoroStep(
     val suggestActivePause: Boolean = false,
 ) {
     val isBreak: Boolean get() = phase != PomodoroPhase.FOCUS
+}
+
+/**
+ * Persistent state of the Pomodoro timer. While it runs only [endsAt] is stored, so the remaining time is
+ * always computed from timestamps and survives the app being closed by the system.
+ */
+data class PomodoroRun(
+    val step: PomodoroStep,
+    /** Remaining time while paused or not started; ignored while running. */
+    val remaining: Duration,
+    val endsAt: Instant? = null,
+    /** The evaluation the focus minutes are credited to (optional). */
+    val evaluationId: String? = null,
+    val courseId: String? = null,
+    val targetTitle: String? = null,
+    /** Open session; it collects the focus blocks completed for the same target and durations. */
+    val session: PomodoroSession? = null,
+) {
+    val running: Boolean get() = endsAt != null
+    val total: Duration get() = Duration.ofMinutes(step.minutes.toLong())
+    val started: Boolean get() = running || remaining < total
+
+    /** Nothing in progress: the first focus block has not started and no session is open. */
+    val isIdle: Boolean
+        get() = !started && session == null && step.phase == PomodoroPhase.FOCUS && step.completedFocus == 0
+
+    fun remainingAt(now: Instant): Duration =
+        endsAt?.let { Duration.between(now, it).coerceAtLeast(Duration.ZERO) } ?: remaining
+
+    fun fractionAt(now: Instant): Float =
+        if (total.isZero) 0f else 1f - remainingAt(now).toMillis().toFloat() / total.toMillis()
 }

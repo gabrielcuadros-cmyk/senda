@@ -3,6 +3,7 @@ package com.fuerzasalvaje.senda.testing
 import com.fuerzasalvaje.senda.domain.model.AIRecommendation
 import com.fuerzasalvaje.senda.domain.model.Availability
 import com.fuerzasalvaje.senda.domain.model.Course
+import com.fuerzasalvaje.senda.domain.model.PomodoroSession
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
 import com.fuerzasalvaje.senda.domain.model.QuestionRequest
 import com.fuerzasalvaje.senda.domain.repository.AiLogger
@@ -19,6 +20,7 @@ import com.fuerzasalvaje.senda.domain.repository.AIRecommendationRepository
 import com.fuerzasalvaje.senda.domain.repository.AuthRepository
 import com.fuerzasalvaje.senda.domain.repository.AvailabilityRepository
 import com.fuerzasalvaje.senda.domain.repository.GeminiService
+import com.fuerzasalvaje.senda.domain.repository.PomodoroSessionRepository
 import com.fuerzasalvaje.senda.domain.repository.StressCheckInRepository
 import com.fuerzasalvaje.senda.domain.repository.StudyBlockRepository
 import com.fuerzasalvaje.senda.domain.model.Evaluation
@@ -84,6 +86,8 @@ class FakeEvaluationRepository : FakeOwnedRepository<Evaluation>({ it.id }), Eva
 }
 
 class FakeStudyBlockRepository : FakeOwnedRepository<StudyBlock>({ it.id }), StudyBlockRepository
+
+class FakePomodoroSessionRepository : FakeOwnedRepository<PomodoroSession>({ it.id }), PomodoroSessionRepository
 
 class FakeStressRepository : FakeOwnedRepository<StressCheckIn>({ it.id }), StressCheckInRepository
 

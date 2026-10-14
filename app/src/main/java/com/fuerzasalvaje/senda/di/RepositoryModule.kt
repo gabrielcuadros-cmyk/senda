@@ -1,5 +1,6 @@
 package com.fuerzasalvaje.senda.di
 
+import com.fuerzasalvaje.senda.data.local.LocalDocumentStorage
 import com.fuerzasalvaje.senda.data.remote.FirebaseSessionProvider
 import com.fuerzasalvaje.senda.data.remote.SessionProvider
 import com.fuerzasalvaje.senda.data.repository.AIRecommendationRepositoryImpl
@@ -15,6 +16,7 @@ import com.fuerzasalvaje.senda.data.repository.SyncableRepository
 import com.fuerzasalvaje.senda.domain.repository.AIRecommendationRepository
 import com.fuerzasalvaje.senda.domain.repository.AuthRepository
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
+import com.fuerzasalvaje.senda.domain.repository.DocumentStorage
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
 import com.fuerzasalvaje.senda.domain.repository.PomodoroSessionRepository
 import com.fuerzasalvaje.senda.domain.repository.QuestionRepository
@@ -45,6 +47,7 @@ abstract class RepositoryModule {
 
     @Binds abstract fun bindSessionProvider(impl: FirebaseSessionProvider): SessionProvider
     @Binds abstract fun bindAuthRepository(impl: AuthRepositoryImpl): AuthRepository
+    @Binds abstract fun bindDocumentStorage(impl: LocalDocumentStorage): DocumentStorage
 
     @Binds abstract fun bindCourseRepository(impl: CourseRepositoryImpl): CourseRepository
     @Binds abstract fun bindEvaluationRepository(impl: EvaluationRepositoryImpl): EvaluationRepository

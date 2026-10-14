@@ -11,6 +11,7 @@ import com.fuerzasalvaje.senda.domain.model.Course
 import com.fuerzasalvaje.senda.domain.model.Evaluation
 import com.fuerzasalvaje.senda.domain.model.EvaluationStatus
 import com.fuerzasalvaje.senda.domain.model.PhaseStatus
+import com.fuerzasalvaje.senda.domain.model.Plan
 import com.fuerzasalvaje.senda.domain.model.Project
 import com.fuerzasalvaje.senda.domain.model.WeeklyProgress
 import com.fuerzasalvaje.senda.domain.usecase.auth.ObserveSessionUseCase
@@ -50,6 +51,7 @@ data class TipUiState(val loading: Boolean = false, val error: String? = null)
 data class HomeUiState(
     val loading: Boolean = true,
     val firstName: String = "",
+    val plan: Plan = Plan.LAUNCH,
     val today: LocalDate? = null,
     val greeting: String = "Hola",
     val progress: WeeklyProgress = WeeklyProgress(0, 0),
@@ -74,6 +76,7 @@ data class HomeUiState(
 
 private data class HomeData(
     val firstName: String,
+    val plan: Plan,
     val progress: WeeklyProgress,
     val conflicts: List<Conflict>,
     val courses: List<Course>,
@@ -117,6 +120,7 @@ class HomeViewModel @Inject constructor(
     ) { user, week, priorities, evaluations, selected ->
         HomeData(
             firstName = user?.name?.substringBefore(' ').orEmpty(),
+            plan = user?.plan ?: Plan.LAUNCH,
             progress = week.progress,
             conflicts = week.conflicts,
             courses = week.courses,
@@ -138,6 +142,7 @@ class HomeViewModel @Inject constructor(
         HomeUiState(
             loading = false,
             firstName = d.firstName,
+            plan = d.plan,
             today = LocalDate.now(clock),
             greeting = greetingFor(LocalTime.now(clock)),
             progress = d.progress,

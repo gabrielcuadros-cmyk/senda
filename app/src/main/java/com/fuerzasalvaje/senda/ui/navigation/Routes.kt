@@ -23,6 +23,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object StudyPlanRoute
 @Serializable data object WellbeingRoute
 @Serializable data object ReminderSettingsRoute
+@Serializable data object PlansRoute
 @Serializable data class SimulacrumRoute(val simulacrumId: String)
 @Serializable data class SimulacrumResultRoute(val simulacrumId: String)
 @Serializable data object CourseListRoute

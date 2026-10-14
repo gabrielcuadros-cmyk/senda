@@ -12,7 +12,7 @@ fun UserDto.toDomain(uid: String) = User(
     uid = uid,
     name = name,
     email = email,
-    plan = enumOrDefault(plan, Plan.FREE),
+    plan = enumOrDefault(plan, Plan.LAUNCH),
     createdAt = createdAt.takeIf { it > 0 }?.toInstant(),
 )
 

@@ -49,7 +49,7 @@ class AuthRepositoryImpl @Inject constructor(
         val firebaseUser = requireNotNull(auth.createUserWithEmailAndPassword(email, password).await().user)
         firebaseUser.updateProfile(userProfileChangeRequest { displayName = name }).await()
 
-        val user = User(uid = firebaseUser.uid, name = name, email = email, plan = Plan.FREE, createdAt = clock.instant())
+        val user = User(uid = firebaseUser.uid, name = name, email = email, plan = Plan.LAUNCH, createdAt = clock.instant())
         // The account already exists at this point: a slow or failed profile write must not fail sign-up.
         val written = withTimeoutOrNull(PROFILE_WRITE_TIMEOUT_MS) {
             runCatching { firestore.userDoc(user.uid).set(user.toDto()).await() }
@@ -87,7 +87,12 @@ class AuthRepositoryImpl @Inject constructor(
                 return@addSnapshotListener
             }
             val profile = snapshot?.takeIf { it.exists() }?.toObject(UserDto::class.java)?.toDomain(uid)
-            trySend(profile ?: fallback)
+            if (profile != null && profile.plan != Plan.LAUNCH) {
+                // Launch promotion: accounts created before it move to Premium on their next session.
+                snapshot.reference.update(PLAN_FIELD, Plan.LAUNCH.name)
+                    .addOnFailureListener { Log.w(TAG, "Could not migrate plan: ${it.message}") }
+            }
+            trySend(profile?.copy(plan = Plan.LAUNCH) ?: fallback)
         }
         awaitClose { registration.remove() }
     }
@@ -109,6 +114,7 @@ class AuthRepositoryImpl @Inject constructor(
     private companion object {
         const val TAG = "SendaAuth"
         const val PROFILE_WRITE_TIMEOUT_MS = 10_000L
+        const val PLAN_FIELD = "plan"
     }
 }
 

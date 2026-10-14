@@ -5,7 +5,7 @@ App Android del equipo **Fuerza Salvaje** (Tecsup) para sobrellevar la semana de
 ## Fuentes de verdad (en orden de prioridad)
 
 1. `docs/base/*.png`: base oficial. Manda sobre todo lo demás.
-2. Decisiones del PO: sección 9 de `docs/CONTEXTO_PROYECTO.md` (D-1 a D-17). Resuelven los vacíos de la base.
+2. Decisiones del PO: sección 9 de `docs/CONTEXTO_PROYECTO.md` (D-1 a D-18). Resuelven los vacíos de la base.
 3. Las decisiones técnicas de este archivo.
 4. `docs/CONTEXTO_PROYECTO.md`: transcripción de la base (HU-01..HU-17, KB-01..KB-05) y tabla final de reglas de negocio (sección 6).
 5. `docs/ideas_extra/`: ideas de un compañero, prioridad secundaria. Nunca reemplazan ni contradicen la base; las compatibles van a una fase opcional al final.
@@ -18,7 +18,7 @@ Si algo no está definido en estas fuentes, preguntar antes de inventar.
 - App Android nativa, aunque el Lean UX diga "aplicación web". Las tareas que mencionan API REST, endpoints o servidor se traducen a repositorios y casos de uso.
 - Clean Architecture + MVVM: `ui -> domain <- data`. `domain` es Kotlin puro, sin dependencias de Android ni Firebase.
 - Hilt para inyección. Room como caché offline. WorkManager para recordatorios.
-- Firebase Auth + Cloud Firestore. Los datos de cada usuario viven bajo `users/{uid}/...`. `User.plan` = FREE | PREMIUM (solo el campo).
+- Firebase Auth + Cloud Firestore. Los datos de cada usuario viven bajo `users/{uid}/...`. `User.plan` = FREE | PREMIUM; todos los usuarios son PREMIUM por promoción de lanzamiento (D-18).
 - IA con Google Gemini, detrás de una interfaz `GeminiService` en `domain`, para poder implementarla con Firebase AI Logic (`firebase-ai`, recomendado) o con `com.google.ai.client.generativeai` (deprecado).
 - `GEMINI_API_KEY` y `GEMINI_MODEL` van en `local.properties` y se leen con `BuildConfig`.
 - PDFs: copia en el almacenamiento interno de la app y ruta en Room. Firebase Storage queda para la fase opcional.
@@ -73,7 +73,8 @@ Detalle completo y origen de cada regla: sección 6 de `docs/CONTEXTO_PROYECTO.m
 **IA y datos**
 - Gemini genera preguntas desde el temario, explica errores y da consejos según el estrés y la carga (prioridades y horas pendientes).
 - Los consejos nunca recomiendan amanecidas.
-- Fuera de alcance: Premium, licencias y publicidad. Excluida la venta de información del estudiante (Ley 29733).
+- Planes solo como interfaz: pantalla "Planes" (Gratuito S/ 0, Premium S/ 9.90 al mes, referencial) e insignia "Premium" en Inicio. Todos los usuarios son Premium por promoción de lanzamiento; las cuentas antiguas se migran al iniciar sesión. No se bloquea ni limita ninguna función por plan.
+- Fuera de alcance: pagos, límites del plan Gratuito (versión futura), licencias y publicidad. Excluida la venta de información del estudiante (Ley 29733).
 
 ## Reglas de trabajo
 

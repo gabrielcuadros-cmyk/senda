@@ -7,6 +7,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material.icons.rounded.WorkspacePremium
+import com.fuerzasalvaje.senda.domain.model.Plan
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -70,6 +73,7 @@ fun HomeScreen(
     onCreateEvaluation: () -> Unit,
     onEditEvaluation: (String) -> Unit,
     onOpenPlan: () -> Unit,
+    onOpenPlans: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -87,10 +91,15 @@ fun HomeScreen(
     ) {
         item {
             Column {
-                Text(
-                    if (state.firstName.isBlank()) "${state.greeting}!" else "${state.greeting}, ${state.firstName}!",
-                    style = MaterialTheme.typography.headlineMedium,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (state.firstName.isBlank()) "${state.greeting}!" else "${state.greeting}, ${state.firstName}!",
+                        style = MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    PlanBadge(state.plan, onOpenPlans)
+                }
                 state.today?.let {
                     Text(Formats.fullDate(it), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -169,6 +178,23 @@ fun HomeScreen(
             onReextract = { viewModel.aiContent.reextract(evaluation) },
         )
     }
+}
+
+/** Current plan next to the greeting; opens the Planes screen. */
+@Composable
+private fun PlanBadge(plan: Plan, onClick: () -> Unit) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(if (plan == Plan.PREMIUM) "Premium" else "Gratuito") },
+        leadingIcon = {
+            Icon(Icons.Rounded.WorkspacePremium, contentDescription = null, modifier = Modifier.size(AssistChipDefaults.IconSize))
+        },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            leadingIconContentColor = MaterialTheme.colorScheme.primary,
+        ),
+        border = null,
+    )
 }
 
 @Composable

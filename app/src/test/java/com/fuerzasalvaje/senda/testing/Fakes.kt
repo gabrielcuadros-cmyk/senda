@@ -4,6 +4,8 @@ import com.fuerzasalvaje.senda.domain.model.AIRecommendation
 import com.fuerzasalvaje.senda.domain.model.Availability
 import com.fuerzasalvaje.senda.domain.model.Course
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
+import com.fuerzasalvaje.senda.domain.model.QuestionRequest
+import com.fuerzasalvaje.senda.domain.repository.AiLogger
 import com.fuerzasalvaje.senda.domain.model.Question
 import com.fuerzasalvaje.senda.domain.model.Simulacrum
 import com.fuerzasalvaje.senda.domain.repository.QuestionRepository
@@ -124,11 +126,21 @@ class FakeGeminiService(var tipsResult: Result<String> = Result.success("- Estud
         lastTipsRequest = request
         return tipsResult
     }
-    override suspend fun generateQuestions(courseName: String, syllabus: String, count: Int): Result<List<GeneratedQuestion>> {
+    var lastRequest: QuestionRequest? = null
+
+    override suspend fun generateQuestions(request: QuestionRequest): Result<List<GeneratedQuestion>> {
         generateCalls++
-        lastSyllabus = syllabus
+        lastSyllabus = request.syllabus
+        lastRequest = request
         return questionsResult
     }
+}
+
+/** Keeps the SendaAI lines so tests can check what would reach Logcat. */
+class FakeAiLogger : AiLogger {
+    val lines = mutableListOf<String>()
+    override fun info(message: String) { lines += "I $message" }
+    override fun warn(message: String) { lines += "W $message" }
 }
 
 fun generated(n: Int) = GeneratedQuestion(

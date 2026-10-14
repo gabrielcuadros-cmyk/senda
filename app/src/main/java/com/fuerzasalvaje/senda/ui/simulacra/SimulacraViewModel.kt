@@ -12,6 +12,7 @@ import com.fuerzasalvaje.senda.domain.usecase.course.ObserveCoursesUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.FinishSimulacrumUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.MissingSyllabusException
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.NoValidQuestionsException
+import com.fuerzasalvaje.senda.domain.model.AiError
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.ObserveReadinessUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.StartSimulacrumUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -95,11 +96,8 @@ class SimulacraViewModel @Inject constructor(
                 onSuccess = { attempt -> ui.update { it.copy(preparingCourseId = null, startedId = attempt.id) } },
                 onFailure = { error ->
                     ui.update {
-                        when (error) {
-                            is MissingSyllabusException -> it.copy(preparingCourseId = null, askTopicsFor = course)
-                            is NoValidQuestionsException -> it.copy(preparingCourseId = null, message = "La IA no generó preguntas válidas. Inténtalo otra vez.")
-                            else -> it.copy(preparingCourseId = null, message = "No pudimos generar preguntas. Revisa tu conexión e inténtalo de nuevo.")
-                        }
+                        if (error is MissingSyllabusException) it.copy(preparingCourseId = null, askTopicsFor = course)
+                        else it.copy(preparingCourseId = null, message = errorMessage(error))
                     }
                 },
             )
@@ -107,6 +105,22 @@ class SimulacraViewModel @Inject constructor(
     }
 
     fun dismissTopics() = ui.update { it.copy(askTopicsFor = null) }
+
+    companion object {
+        /** Clear Spanish message for each failure (the technical detail goes to Logcat, tag SendaAI). */
+        fun errorMessage(error: Throwable): String = when (error) {
+            is AiError.Network -> "Sin conexión. Revisa tu internet e inténtalo de nuevo."
+            is AiError.Timeout -> "La IA tardó demasiado en responder. Inténtalo de nuevo."
+            is AiError.QuotaExceeded -> "Llegaste al límite de uso de Gemini. Espera unos minutos e inténtalo de nuevo."
+            is AiError.Configuration -> "La IA no está bien configurada: revisa GEMINI_API_KEY y GEMINI_MODEL en local.properties."
+            is AiError.Blocked -> "La IA no pudo usar este material por sus filtros de seguridad. Prueba con otros temas."
+            is AiError.InvalidResponse -> "La IA respondió en un formato inválido. Inténtalo otra vez."
+            is NoValidQuestionsException ->
+                "La IA solo generó ${error.valid} preguntas válidas de ${error.received}. Inténtalo otra vez o detalla más el temario."
+            is AiError.Server -> "El servicio de IA falló (código ${error.code}). Inténtalo en unos minutos."
+            else -> "No pudimos generar preguntas. Inténtalo de nuevo."
+        }
+    }
     fun consumeMessage() = ui.update { it.copy(message = null) }
     fun consumeStarted() = ui.update { it.copy(startedId = null) }
 }

@@ -1,7 +1,9 @@
 package com.fuerzasalvaje.senda.di
 
 import com.fuerzasalvaje.senda.BuildConfig
+import com.fuerzasalvaje.senda.domain.repository.AiLogger
 import com.fuerzasalvaje.senda.domain.repository.GeminiService
+import com.fuerzasalvaje.senda.util.gemini.AndroidAiLogger
 import com.fuerzasalvaje.senda.util.gemini.FirebaseGeminiService
 import com.fuerzasalvaje.senda.util.gemini.GeminiConfig
 import com.fuerzasalvaje.senda.util.gemini.GeminiPrompts
@@ -29,6 +31,10 @@ object AiModule {
     @Provides
     @Singleton
     fun provideGeminiPrompts(json: Json): GeminiPrompts = GeminiPrompts(json)
+
+    @Provides
+    @Singleton
+    fun provideAiLogger(impl: AndroidAiLogger): AiLogger = impl
 
     /** AI_PROVIDER = "firebase" uses Firebase AI Logic; anything else uses the REST API with the key. */
     @Provides

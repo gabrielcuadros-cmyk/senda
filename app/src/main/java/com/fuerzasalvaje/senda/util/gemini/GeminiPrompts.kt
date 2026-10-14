@@ -1,15 +1,26 @@
 package com.fuerzasalvaje.senda.util.gemini
 
+import com.fuerzasalvaje.senda.domain.model.AiError
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
 import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 
-/** A provider-agnostic request: system instruction, user text and whether JSON output is expected. */
+/** A PDF sent to the model as inline data. Not a data class: it holds a byte array. */
+class PdfAttachment(val bytes: ByteArray, val name: String)
+
+/** A provider-agnostic request: system instruction, user text, expected output and attachments. */
 data class GeminiPrompt(
     val system: String,
     val user: String,
     val expectsJson: Boolean = false,
+    /** Ask for the strict question schema (responseSchema). */
+    val questionSchema: Boolean = false,
+    val attachments: List<PdfAttachment> = emptyList(),
 )
 
 /** Builds the Spanish prompts shared by every GeminiService implementation and parses their output. */
@@ -57,34 +68,54 @@ class GeminiPrompts(private val json: Json) {
         },
     )
 
-    fun generateQuestions(courseName: String, syllabus: String, count: Int) = GeminiPrompt(
-        system = TUTOR_RULES,
-        user = """
-            Curso: $courseName
-            Temario:
-            $syllabus
+    /** With [attachments] the questions must come from the PDFs; the text is a guide of what enters. */
+    fun generateQuestions(courseName: String, syllabus: String, count: Int, attachments: List<PdfAttachment> = emptyList()) =
+        GeminiPrompt(
+            system = TUTOR_RULES,
+            user = buildString {
+                appendLine("Curso: $courseName")
+                if (attachments.isNotEmpty()) {
+                    appendLine("Material adjunto: ${attachments.size} PDF del curso.")
+                    appendLine("Basa todas las preguntas en el contenido de ese material; no inventes temas que no aparezcan en él.")
+                }
+                if (syllabus.isNotBlank()) {
+                    appendLine("Temario que entra en el examen:")
+                    appendLine(syllabus)
+                }
+                appendLine()
+                appendLine("Genera exactamente $count preguntas de simulacro.")
+                appendLine("Mezcla preguntas de opción múltiple y preguntas de caso (un escenario breve seguido de la pregunta).")
+                appendLine("Cada pregunta tiene exactamente 4 opciones distintas y una sola correcta.")
+                appendLine("correctOptionIndex va de 0 a 3. scenario es null cuando no es una pregunta de caso.")
+                append("Incluye en explanation la solución fundamentada en 1 a 3 oraciones.")
+            },
+            expectsJson = true,
+            questionSchema = true,
+            attachments = attachments,
+        )
 
-            Genera exactamente $count preguntas de simulacro sobre este temario.
-            Mezcla preguntas de opción múltiple y preguntas de caso (un escenario breve seguido de opción múltiple).
-            Cada pregunta tiene 4 opciones y una sola correcta.
-            Responde solo con un arreglo JSON con este formato:
-            [{"statement": "...", "scenario": "... o null", "options": ["...", "...", "...", "..."],
-              "correctOptionIndex": 0, "explanation": "..."}]
-        """.trimIndent(),
-        expectsJson = true,
-    )
-
-    /** Parses the model output, dropping malformed questions. Fails if nothing usable remains. */
+    /**
+     * Reads every question in the answer, valid or not; validation happens in the domain.
+     * Accepts `{"questions": [...]}` (the schema) or a bare array, with or without code fences.
+     * Throws [AiError.InvalidResponse] when the text is not JSON of either shape.
+     */
     fun parseQuestions(raw: String): List<GeneratedQuestion> {
         val payload = raw.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
-        val dtos = try {
-            json.decodeFromString<List<QuestionDto>>(payload)
+        if (payload.isEmpty()) throw AiError.InvalidResponse("Empty answer")
+        val root: JsonElement = try {
+            json.parseToJsonElement(payload)
         } catch (e: Exception) {
-            throw GeminiException("The AI response is not a valid question list", e)
+            throw AiError.InvalidResponse("Not JSON: ${e.message?.take(120)}", e)
         }
-        val questions = dtos.mapNotNull { it.toDomainOrNull() }
-        if (questions.isEmpty()) throw GeminiException("The AI response has no valid questions")
-        return questions
+        val items: JsonArray = when (root) {
+            is JsonArray -> root
+            is JsonObject -> (root["questions"] ?: root.values.firstOrNull { it is JsonArray }) as? JsonArray
+                ?: throw AiError.InvalidResponse("JSON object without a questions array")
+            else -> throw AiError.InvalidResponse("Unexpected JSON root")
+        }
+        return items.mapNotNull { element ->
+            runCatching { json.decodeFromJsonElement<QuestionDto>(element).toDomain() }.getOrNull()
+        }
     }
 
     @Serializable
@@ -95,16 +126,13 @@ class GeminiPrompts(private val json: Json) {
         val correctOptionIndex: Int = -1,
         val explanation: String = "",
     ) {
-        fun toDomainOrNull(): GeneratedQuestion? {
-            if (statement.isBlank() || options.size < 2 || correctOptionIndex !in options.indices) return null
-            return GeneratedQuestion(
-                statement = statement.trim(),
-                options = options.map { it.trim() },
-                correctOptionIndex = correctOptionIndex,
-                explanation = explanation.trim(),
-                scenario = scenario?.trim()?.takeIf { it.isNotEmpty() && it != "null" },
-            )
-        }
+        fun toDomain() = GeneratedQuestion(
+            statement = statement.trim(),
+            options = options.map { it.trim() },
+            correctOptionIndex = correctOptionIndex,
+            explanation = explanation.trim(),
+            scenario = scenario?.trim()?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) },
+        )
     }
 
     private companion object {

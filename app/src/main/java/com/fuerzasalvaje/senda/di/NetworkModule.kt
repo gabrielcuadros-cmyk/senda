@@ -27,6 +27,8 @@ object NetworkModule {
     fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
-        .callTimeout(90, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        // Whole request, including large PDF uploads, must finish within 60 s.
+        .callTimeout(60, TimeUnit.SECONDS)
         .build()
 }

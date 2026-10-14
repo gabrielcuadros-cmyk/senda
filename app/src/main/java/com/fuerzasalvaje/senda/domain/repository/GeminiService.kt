@@ -1,10 +1,12 @@
 package com.fuerzasalvaje.senda.domain.repository
 
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
+import com.fuerzasalvaje.senda.domain.model.QuestionRequest
 import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
 
 /**
  * AI features of Senda. Implementations may use the Gemini REST API or Firebase AI Logic.
+ * Failures are reported as [com.fuerzasalvaje.senda.domain.model.AiError].
  */
 interface GeminiService {
 
@@ -20,10 +22,15 @@ interface GeminiService {
     /** Study advice based on the stress check-in and the pending workload. */
     suspend fun studyTips(request: StudyTipsRequest): Result<String>
 
-    /** Generates [count] multiple-choice and case questions from the course [syllabus]. */
-    suspend fun generateQuestions(
-        courseName: String,
-        syllabus: String,
-        count: Int,
-    ): Result<List<GeneratedQuestion>>
+    /**
+     * Generates multiple-choice and case questions from the syllabus and the attached PDFs.
+     * Returns every question received, valid or not: the caller validates them.
+     */
+    suspend fun generateQuestions(request: QuestionRequest): Result<List<GeneratedQuestion>>
+}
+
+/** Diagnostic log for AI calls (Logcat tag SendaAI). Implementations must never print secrets. */
+interface AiLogger {
+    fun info(message: String)
+    fun warn(message: String)
 }

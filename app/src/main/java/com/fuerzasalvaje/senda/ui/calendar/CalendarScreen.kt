@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -293,21 +294,23 @@ private fun EventBlock(entry: CalendarEntry, clashing: Boolean, zone: ZoneId, on
         border = if (clashing) BorderStroke(2.dp, colors.clash) else null,
         modifier = modifier.alpha(if (entry.isDone) 0.55f else 1f),
     ) {
-        Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (entry.isDone) Icon(Icons.Rounded.CheckCircle, contentDescription = "Completado", modifier = Modifier.size(12.dp))
-                Text(
-                    entry.title,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        val time = if (entry.isDeadline) "Entrega ${Formats.time(entry.start, zone)}" else "${Formats.time(entry.start, zone)}–${Formats.time(entry.end, zone)}"
+        // Fit the content to the block: short blocks show one line instead of clipping two.
+        BoxWithConstraints(Modifier.padding(horizontal = 6.dp, vertical = 3.dp)) {
+            val roomy = maxHeight >= 44.dp
+            val titleLines = if (maxHeight >= 64.dp) 2 else 1
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (entry.isDone) Icon(Icons.Rounded.CheckCircle, contentDescription = "Completado", modifier = Modifier.size(12.dp))
+                    Text(
+                        if (roomy) entry.title else "${Formats.time(entry.start, zone)} ${entry.title}",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = titleLines,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (roomy) Text(time, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text(
-                if (entry.isDeadline) "Entrega ${Formats.time(entry.start, zone)}" else "${Formats.time(entry.start, zone)}–${Formats.time(entry.end, zone)}",
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-            )
         }
     }
 }

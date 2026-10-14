@@ -113,8 +113,10 @@ fun CourseListScreen(
                                     add("${item.evaluationCount} evaluaciones")
                                 }
                                 Text(details.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                // Below the name, not beside it: beside it squeezed the name on 360 dp.
+                                Spacer(Modifier.height(6.dp))
+                                Pill("Importancia ${item.course.importance.label.lowercase()}", MaterialTheme.colorScheme.surfaceVariant)
                             }
-                            Pill("Importancia ${item.course.importance.label.lowercase()}", MaterialTheme.colorScheme.surfaceVariant)
                         }
                     }
                 }

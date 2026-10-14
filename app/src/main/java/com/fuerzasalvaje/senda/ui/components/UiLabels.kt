@@ -94,6 +94,7 @@ object Formats {
     fun time(value: LocalTime): String = value.format(time)
     fun time(value: Instant, zone: ZoneId): String = value.atZone(zone).format(time)
     fun dayMonth(value: LocalDate): String = value.format(dayMonth).capitalized()
+    fun shortDate(value: LocalDate): String = value.format(shortDate)
     fun fullDate(value: LocalDate): String = value.format(fullDate).capitalized()
     fun dateTime(value: Instant, zone: ZoneId): String =
         "${dayMonth(value.atZone(zone).toLocalDate())}, ${time(value, zone)}"

@@ -365,7 +365,7 @@ private fun ProjectFields(state: EvaluationFormUiState, viewModel: EvaluationFor
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DateField(
-                    "Fecha", phase.date, { d -> viewModel.updatePhase(phase.id) { it.copy(date = d) } }, Modifier.weight(1f),
+                    "Fecha", phase.date, { d -> viewModel.updatePhase(phase.id) { it.copy(date = d) } }, Modifier.weight(1f), compact = true,
                     error = if (state.showErrors && phase.date == null) "Requerida" else null,
                 )
                 TimeField("Hora", phase.time, { t -> viewModel.updatePhase(phase.id) { it.copy(time = t) } }, Modifier.weight(1f))

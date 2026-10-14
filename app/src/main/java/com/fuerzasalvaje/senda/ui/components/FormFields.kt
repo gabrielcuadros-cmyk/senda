@@ -39,7 +39,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -117,7 +119,16 @@ fun <T> SegmentedSelector(
                 onClick = { onSelect(option.value) },
                 shape = SegmentedButtonDefaults.itemShape(index, options.size),
                 enabled = enabled,
-                label = { Text(option.label, maxLines = 1) },
+                // No check icon: on 360 dp it takes the width the label needs.
+                icon = {},
+                label = {
+                    Text(
+                        option.label,
+                        style = MaterialTheme.typography.labelMedium.copy(lineHeight = 14.sp),
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                    )
+                },
             )
         }
     }
@@ -131,10 +142,12 @@ fun DateField(
     onChange: (LocalDate) -> Unit,
     modifier: Modifier = Modifier,
     error: String? = null,
+    /** Short "14 oct." format for half-width fields. */
+    compact: Boolean = false,
 ) {
     var open by remember { mutableStateOf(false) }
     ClickableField(
-        value = value?.let(Formats::dayMonth).orEmpty(),
+        value = value?.let { if (compact) Formats.shortDate(it) else Formats.dayMonth(it) }.orEmpty(),
         label = label,
         onClick = { open = true },
         icon = Icons.Rounded.CalendarMonth,
@@ -156,7 +169,24 @@ fun DateField(
             },
             dismissButton = { TextButton(onClick = { open = false }) { Text("Cancelar") } },
         ) {
-            DatePicker(state = state)
+            // The default headline is too large for 360 dp screens, where the dialog has no side margin.
+            DatePicker(
+                state = state,
+                title = {
+                    Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 24.dp, end = 12.dp, top = 16.dp))
+                },
+                headline = {
+                    Text(
+                        state.selectedDateMillis
+                            ?.let { Formats.fullDate(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()) }
+                            ?: "Elige una fecha",
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 2,
+                        modifier = Modifier.padding(start = 24.dp, end = 12.dp, bottom = 12.dp),
+                    )
+                },
+                showModeToggle = false,
+            )
         }
     }
 }

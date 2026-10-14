@@ -98,7 +98,7 @@ private fun MainNavHost(onSignOut: () -> Unit) {
                             selected = tab == currentTab,
                             onClick = { navController.navigateToTab(tab) },
                             icon = { Icon(tab.icon, contentDescription = null) },
-                            label = { Text(tab.label, maxLines = 1) },
+                            label = { Text(tab.label, style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) },
                         )
                     }
                 }

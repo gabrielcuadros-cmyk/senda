@@ -82,4 +82,4 @@ Detalle completo y origen de cada regla: sección 6 de `docs/CONTEXTO_PROYECTO.m
 - UI en español; código (nombres, comentarios, commits) en inglés.
 - Tests unitarios para la lógica de negocio (`domain`): prioridad y desempates, cruces, curso crítico, validaciones, estados derivados, Nivel de Preparación.
 - Antes de terminar cada tarea, `./gradlew assembleDebug` debe compilar (en PowerShell: `.\gradlew.bat assembleDebug`).
-- No hacer `git push` sin que el usuario lo pida.
+- Al terminar cada fase, si `.\gradlew.bat assembleDebug` compila, haz commit y `git push` automáticamente sin preguntar. Nunca subas `local.properties` ni `google-services.json`.

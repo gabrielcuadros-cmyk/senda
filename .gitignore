@@ -1,0 +1,26 @@
+# Gradle
+.gradle/
+build/
+*/build/
+
+# Kotlin
+.kotlin/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+captures/
+.cxx/
+.externalNativeBuild/
+
+# Local configuration and secrets (never commit)
+local.properties
+app/google-services.json
+*.jks
+*.keystore
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# OS
+.DS_Store

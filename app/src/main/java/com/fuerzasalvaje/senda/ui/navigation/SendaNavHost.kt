@@ -45,6 +45,10 @@ import com.fuerzasalvaje.senda.ui.courses.CourseListScreen
 import com.fuerzasalvaje.senda.ui.evaluation.EvaluationFormScreen
 import com.fuerzasalvaje.senda.ui.home.HomeScreen
 import com.fuerzasalvaje.senda.ui.plan.StudyPlanScreen
+import com.fuerzasalvaje.senda.ui.simulacra.ProgressScreen
+import com.fuerzasalvaje.senda.ui.simulacra.SimulacraScreen
+import com.fuerzasalvaje.senda.ui.simulacra.SimulacrumResultScreen
+import com.fuerzasalvaje.senda.ui.simulacra.SimulacrumScreen
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -134,8 +138,27 @@ private fun MainNavHost(onSignOut: () -> Unit) {
                 )
             }
             composable<FocusRoute> { ComingSoon("Pomodoro, pausas activas y bienestar llegan en una próxima fase.") }
-            composable<SimulacraRoute> { ComingSoon("Simulacros con preguntas generadas desde tu temario llegan pronto.") }
-            composable<ProgressRoute> { ComingSoon("Tus métricas y nivel de preparación llegan pronto.") }
+            composable<SimulacraRoute> {
+                SimulacraScreen(
+                    onOpenSimulacrum = { navController.navigate(SimulacrumRoute(it)) },
+                    onCreateCourse = { navController.navigate(CourseFormRoute()) },
+                )
+            }
+            composable<ProgressRoute> {
+                ProgressScreen(onOpenResult = { navController.navigate(SimulacrumResultRoute(it)) })
+            }
+            composable<SimulacrumRoute> {
+                SimulacrumScreen(
+                    onFinished = { id ->
+                        // The finished attempt is replaced by its results, so Back returns to the tab.
+                        navController.navigate(SimulacrumResultRoute(id)) {
+                            popUpTo<SimulacrumRoute> { inclusive = true }
+                        }
+                    },
+                    onExit = { navController.popBackStack() },
+                )
+            }
+            composable<SimulacrumResultRoute> { SimulacrumResultScreen(onBack = { navController.popBackStack() }) }
 
             composable<CourseListRoute> {
                 CourseListScreen(

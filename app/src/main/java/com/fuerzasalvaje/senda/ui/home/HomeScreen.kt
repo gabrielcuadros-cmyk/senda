@@ -41,6 +41,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuerzasalvaje.senda.domain.engine.PriorityItem
 import com.fuerzasalvaje.senda.domain.model.Project
+import com.fuerzasalvaje.senda.domain.usecase.plan.StudyProgress
+import com.fuerzasalvaje.senda.ui.wellbeing.ExamRoutineCard
 import com.fuerzasalvaje.senda.ui.components.ConflictBanner
 import com.fuerzasalvaje.senda.ui.components.DifficultyStars
 import com.fuerzasalvaje.senda.ui.components.EmptyState
@@ -100,6 +102,7 @@ fun HomeScreen(
         }
 
         item { StressCheckIn(selected = state.stressLevel, onSelect = viewModel::checkIn) }
+        items(state.routines, key = { "routine:${it.key}" }) { ExamRoutineCard(it, zone) }
         item { WeeklyProgressCard(state) }
         if (state.conflicts.isNotEmpty()) item { ConflictBanner(state.conflicts) }
         state.criticalCourse?.let { load -> item { CriticalCourseCard(load, onOpenPlan) } }
@@ -131,7 +134,12 @@ fun HomeScreen(
             }
         } else {
             items(state.priorities, key = { it.evaluation.id }) { item ->
-                PriorityCard(item, courseName = state.courseOf(item.evaluation)?.name, onClick = { viewModel.open(item.evaluation) })
+                PriorityCard(
+                    item,
+                    courseName = state.courseOf(item.evaluation)?.name,
+                    progress = state.studyProgress[item.evaluation.id],
+                    onClick = { viewModel.open(item.evaluation) },
+                )
             }
         }
     }
@@ -169,7 +177,7 @@ private fun WeeklyProgressCard(state: HomeUiState) {
 }
 
 @Composable
-private fun PriorityCard(item: PriorityItem, courseName: String?, onClick: () -> Unit) {
+private fun PriorityCard(item: PriorityItem, courseName: String?, progress: StudyProgress?, onClick: () -> Unit) {
     val evaluation = item.evaluation
     SendaCard(onClick = onClick, containerColor = SendaTheme.colors.forType(evaluation.type), modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -192,6 +200,7 @@ private fun PriorityCard(item: PriorityItem, courseName: String?, onClick: () ->
             )
             DifficultyStars(evaluation.difficulty)
         }
+        if (progress != null && progress.totalMinutes > 0) StudyHoursLine(progress)
         TextButton(onClick = onClick, modifier = Modifier.align(Alignment.End)) {
             Text("Ver detalle")
             Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null)
@@ -272,4 +281,18 @@ private fun TutorTipCard(state: HomeUiState, zone: java.time.ZoneId, onGenerate:
             )
         }
     }
+}
+
+/** Pending study hours of an evaluation, after accepted blocks and completed Pomodoros. */
+@Composable
+private fun StudyHoursLine(progress: StudyProgress) {
+    val pending = progress.pendingMinutes
+    val text = if (pending == 0) "Horas de estudio cubiertas" else "Te faltan ${Formats.hours(pending / 60.0)} de estudio"
+    val focus = if (progress.focusMinutes > 0) " · ${progress.focusMinutes} min con Pomodoro" else ""
+    Text(
+        text + focus,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 4.dp),
+    )
 }

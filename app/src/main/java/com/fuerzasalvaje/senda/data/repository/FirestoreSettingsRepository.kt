@@ -42,6 +42,7 @@ class FirestoreSettingsRepository @Inject constructor(
             DAILY_SUMMARY to setting.dailySummaryEnabled,
             REST to setting.restReminderEnabled,
             EXAM_ROUTINE to setting.examRoutineEnabled,
+            STUDY_BLOCKS to setting.studyBlockAlertsEnabled,
         ),
     )
 
@@ -90,6 +91,7 @@ class FirestoreSettingsRepository @Inject constructor(
             dailySummaryEnabled = map[DAILY_SUMMARY] as? Boolean ?: default.dailySummaryEnabled,
             restReminderEnabled = map[REST] as? Boolean ?: default.restReminderEnabled,
             examRoutineEnabled = map[EXAM_ROUTINE] as? Boolean ?: default.examRoutineEnabled,
+            studyBlockAlertsEnabled = map[STUDY_BLOCKS] as? Boolean ?: default.studyBlockAlertsEnabled,
         )
     }
 
@@ -113,6 +115,7 @@ class FirestoreSettingsRepository @Inject constructor(
         const val DAILY_SUMMARY = "dailySummary"
         const val REST = "restReminder"
         const val EXAM_ROUTINE = "examRoutine"
+        const val STUDY_BLOCKS = "studyBlockAlerts"
         const val POMODORO = "pomodoro"
         const val FOCUS = "focusMinutes"
         const val SHORT_BREAK = "shortBreakMinutes"

@@ -33,7 +33,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import com.fuerzasalvaje.senda.ui.components.Pill
 import com.fuerzasalvaje.senda.ui.components.SendaCard
+import com.fuerzasalvaje.senda.ui.theme.SendaTheme
 
 /** D-15: wellbeing resources, without diagnoses. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,6 +64,13 @@ fun WellbeingScreen(onBack: () -> Unit) {
                     Text(WellbeingContent.INTRO, style = MaterialTheme.typography.bodyMedium)
                 }
             }
+            if ((WellbeingContent.sections.map { it.validated } + WellbeingContent.contacts.map { it.validated }).any { !it }) {
+                Text(
+                    WellbeingContent.PENDING_NOTE,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             WellbeingContent.sections.forEach { WellbeingSectionCard(it) }
             ContactsCard()
             Spacer(Modifier.height(24.dp))
@@ -76,7 +85,10 @@ fun WellbeingSectionCard(
     containerColor: Color = MaterialTheme.colorScheme.surface,
 ) {
     SendaCard(modifier.fillMaxWidth(), containerColor = containerColor) {
-        Text(section.title, style = MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(section.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            if (!section.validated) PendingPill()
+        }
         Text(section.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(8.dp))
         section.steps.forEachIndexed { index, step ->
@@ -103,7 +115,13 @@ private fun ContactsCard() {
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(contact.label, style = MaterialTheme.typography.titleSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(contact.label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
+                        if (!contact.validated) {
+                            Spacer(Modifier.width(6.dp))
+                            PendingPill()
+                        }
+                    }
                     Text(contact.detail, style = MaterialTheme.typography.bodySmall)
                 }
                 if (contact.phone != null) {
@@ -123,4 +141,9 @@ private fun ContactsCard() {
             }
         }
     }
+}
+
+@Composable
+private fun PendingPill() {
+    Pill(WellbeingContent.PENDING_LABEL, SendaTheme.colors.busyDay.copy(alpha = 0.22f))
 }

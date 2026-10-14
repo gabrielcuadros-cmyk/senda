@@ -7,6 +7,8 @@ data class StudyTipsRequest(
     /** Daily check-in value, 1 (calm) to 5 (very stressed). */
     val stressLevel: Int,
     val pendingItems: List<PendingStudyItem>,
+    /** Pomodoro focus minutes completed this week (Monday to today). */
+    val weeklyPomodoroMinutes: Int = 0,
 )
 
 data class PendingStudyItem(

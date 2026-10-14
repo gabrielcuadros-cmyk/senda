@@ -3,14 +3,18 @@ package com.fuerzasalvaje.senda.ui.wellbeing
 import com.fuerzasalvaje.senda.domain.model.SendaRules
 
 /**
- * Wellbeing resources (D-15): light habits, no diagnoses.
- * Draft content pending PO validation; keep it general and never suggest staying up.
+ * Wellbeing resources (D-15): light habits, no diagnoses. D-15 requires the PO to validate them:
+ * until then every resource is marked [validated] = false and the screen labels it "Por validar".
+ * Keep the content general and never suggest staying up.
  */
 object WellbeingContent {
 
-    data class Section(val title: String, val subtitle: String, val steps: List<String>)
+    data class Section(val title: String, val subtitle: String, val steps: List<String>, val validated: Boolean = false)
 
-    data class Contact(val label: String, val detail: String, val phone: String?)
+    data class Contact(val label: String, val detail: String, val phone: String?, val validated: Boolean = false)
+
+    const val PENDING_LABEL = "Por validar"
+    const val PENDING_NOTE = "Los recursos marcados \"Por validar\" están pendientes de revisión por el equipo de Senda."
 
     const val INTRO =
         "Hábitos sencillos para cuidar tu energía en la semana de exámenes. " +
@@ -64,6 +68,11 @@ object WellbeingContent {
     val contacts = listOf(
         Contact("Línea 113, opción 5", "Orientación en salud mental del MINSA. Gratuita.", "113"),
         Contact("SAMU 106", "Emergencias médicas.", "106"),
-        Contact("Bienestar estudiantil", "Acércate al área de bienestar de tu sede Tecsup.", null),
+        Contact(
+            "Bienestar Estudiantil Tecsup",
+            "Servicio de bienestar estudiantil de Tecsup: orientación y acompañamiento al estudiante. " +
+                "Consulta sus canales de atención en tu sede o en el campus virtual.",
+            null,
+        ),
     )
 }

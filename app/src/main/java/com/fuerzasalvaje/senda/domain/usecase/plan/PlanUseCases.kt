@@ -11,12 +11,15 @@ import com.fuerzasalvaje.senda.domain.engine.TimeRange
 import com.fuerzasalvaje.senda.domain.model.Availability
 import com.fuerzasalvaje.senda.domain.model.Course
 import com.fuerzasalvaje.senda.domain.model.Evaluation
+import com.fuerzasalvaje.senda.domain.model.PomodoroSession
 import com.fuerzasalvaje.senda.domain.model.StudyBlock
 import com.fuerzasalvaje.senda.domain.model.StudyBlockStatus
 import com.fuerzasalvaje.senda.domain.repository.AvailabilityRepository
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
+import com.fuerzasalvaje.senda.domain.repository.PomodoroSessionRepository
 import com.fuerzasalvaje.senda.domain.repository.StudyBlockRepository
+import com.fuerzasalvaje.senda.domain.usecase.calendar.ObservePrioritiesUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -27,12 +30,56 @@ import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
 
-/** Study minutes still missing for [evaluation], after the blocks already agreed on. */
-fun pendingStudyMinutes(evaluation: Evaluation, blocks: List<StudyBlock>): Int {
+/**
+ * Study time of one evaluation: its estimate, the minutes already in accepted or done blocks and the
+ * Pomodoro focus minutes credited to it.
+ */
+data class StudyProgress(val totalMinutes: Int, val scheduledMinutes: Int, val focusMinutes: Int) {
+    val pendingMinutes: Int get() = (totalMinutes - scheduledMinutes - focusMinutes).coerceAtLeast(0)
+}
+
+fun studyProgress(evaluation: Evaluation, blocks: List<StudyBlock>, sessions: List<PomodoroSession> = emptyList()): StudyProgress {
     val scheduled = blocks
         .filter { it.evaluationId == evaluation.id && it.status != StudyBlockStatus.SUGGESTED }
         .sumOf { Duration.between(it.startAt, it.endAt).toMinutes() }
-    return (evaluation.studyHours * 60 - scheduled).toInt().coerceAtLeast(0)
+    val focus = sessions.filter { it.evaluationId == evaluation.id }.sumOf { it.focusedMinutes }
+    return StudyProgress((evaluation.studyHours * 60).toInt(), scheduled.toInt(), focus)
+}
+
+/** Study minutes still missing for [evaluation], after the agreed blocks and the completed Pomodoros. */
+fun pendingStudyMinutes(evaluation: Evaluation, blocks: List<StudyBlock>, sessions: List<PomodoroSession> = emptyList()): Int =
+    studyProgress(evaluation, blocks, sessions).pendingMinutes
+
+/** Live study progress of every evaluation, by id (Home, Plan and Focus). */
+class ObserveStudyProgressUseCase @Inject constructor(
+    private val evaluations: EvaluationRepository,
+    private val studyBlocks: StudyBlockRepository,
+    private val sessions: PomodoroSessionRepository,
+) {
+    operator fun invoke(): Flow<Map<String, StudyProgress>> =
+        combine(evaluations.observeAll(), studyBlocks.observeAll(), sessions.observeAll()) { evaluationList, blocks, sessionList ->
+            evaluationList.associate { it.id to studyProgress(it, blocks, sessionList) }
+        }
+}
+
+/** One pending evaluation and how much of its study time is still missing. */
+data class PendingStudyLine(val evaluationId: String, val title: String, val courseName: String, val progress: StudyProgress)
+
+/** Pending evaluations in priority order with their study progress (Plan de estudio). */
+class ObservePendingStudyUseCase @Inject constructor(
+    private val priorities: ObservePrioritiesUseCase,
+    private val courses: CourseRepository,
+    private val progress: ObserveStudyProgressUseCase,
+) {
+    operator fun invoke(): Flow<List<PendingStudyLine>> =
+        combine(priorities(), courses.observeAll(), progress()) { ranked, courseList, progressById ->
+            val names = courseList.associate { it.id to it.name }
+            ranked.map { it.evaluation }.distinctBy { it.id }.mapNotNull { evaluation ->
+                progressById[evaluation.id]?.takeIf { it.totalMinutes > 0 }?.let {
+                    PendingStudyLine(evaluation.id, evaluation.title, names[evaluation.courseId].orEmpty(), it)
+                }
+            }
+        }
 }
 
 /** HU-13: hours per course this week and the critical course alert. */
@@ -74,6 +121,7 @@ class SuggestStudyBlocksUseCase @Inject constructor(
     private val courses: CourseRepository,
     private val studyBlocks: StudyBlockRepository,
     private val availability: AvailabilityRepository,
+    private val sessions: PomodoroSessionRepository,
     private val priorityEngine: PriorityEngine,
     private val clock: Clock,
 ) {
@@ -83,10 +131,11 @@ class SuggestStudyBlocksUseCase @Inject constructor(
         val evaluationList = evaluations.observeAll().first()
         val courseList = courses.observeAll().first()
         val blocks = studyBlocks.observeAll().first().filter { it.status != StudyBlockStatus.SUGGESTED }
+        val sessionList = sessions.observeAll().first()
 
         val tasks = priorityEngine.rank(evaluationList, courseList.associate { it.id to it.importance })
             .filter { !it.isOverdue }
-            .map { StudyTask(it.evaluation.id, it.evaluation.courseId, it.dueAt, pendingStudyMinutes(it.evaluation, blocks)) }
+            .map { StudyTask(it.evaluation.id, it.evaluation.courseId, it.dueAt, pendingStudyMinutes(it.evaluation, blocks, sessionList)) }
             .filter { it.pendingMinutes > 0 }
 
         val horizonEnd = tasks.maxOfOrNull { it.dueAt } ?: now

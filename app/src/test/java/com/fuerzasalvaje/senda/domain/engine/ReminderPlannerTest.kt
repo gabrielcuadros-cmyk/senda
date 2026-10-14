@@ -7,6 +7,8 @@ import com.fuerzasalvaje.senda.domain.model.PhaseStatus
 import com.fuerzasalvaje.senda.domain.model.Project
 import com.fuerzasalvaje.senda.domain.model.ProjectPhase
 import com.fuerzasalvaje.senda.domain.model.ReminderSetting
+import com.fuerzasalvaje.senda.domain.model.StudyBlock
+import com.fuerzasalvaje.senda.domain.model.StudyBlockStatus
 import com.fuerzasalvaje.senda.testing.TEST_NOW
 import com.fuerzasalvaje.senda.testing.TEST_ZONE
 import com.fuerzasalvaje.senda.testing.course
@@ -83,6 +85,38 @@ class ReminderPlannerTest {
         assertEquals(TEST_NOW + Duration.ofHours(3), routine.triggerAt)
         assertEquals("a" to "b", routine.finished.id to routine.next.id)
         assertEquals(Duration.ofMinutes(30), routine.gap)
+    }
+
+    @Test
+    fun `routine only when the gap is 15 to 60 minutes`() {
+        // First exam 09:00–11:00; the second one starts after a gap of N minutes.
+        fun routines(gapMinutes: Long) = ReminderPlanner.examRoutines(
+            entries(exam("a", inHours = 1), exam("b", inHours = 1).copy(startAt = TEST_NOW + Duration.ofMinutes(180 + gapMinutes))),
+            TEST_ZONE, TEST_NOW,
+        )
+
+        assertTrue(routines(0).isEmpty())
+        assertTrue(routines(14).isEmpty())
+        assertEquals(1, routines(15).size)
+        assertEquals(1, routines(60).size)
+        assertTrue(routines(61).isEmpty())
+        assertTrue(routines(180).isEmpty())
+    }
+
+    @Test
+    fun `study blocks get an alert 10 minutes before, only while scheduled`() {
+        val start = TEST_NOW + Duration.ofHours(3)
+        val scheduled = StudyBlock("b1", "c1", "e1", start, start + Duration.ofHours(1), StudyBlockStatus.SCHEDULED)
+        val done = scheduled.copy(id = "b2", status = StudyBlockStatus.DONE)
+        val suggested = scheduled.copy(id = "b3", status = StudyBlockStatus.SUGGESTED)
+        val tooSoon = scheduled.copy(id = "b4", startAt = TEST_NOW + Duration.ofMinutes(5), endAt = TEST_NOW + Duration.ofMinutes(65))
+
+        val reminders = ReminderPlanner.studyBlockReminders(listOf(scheduled, done, suggested, tooSoon), TEST_NOW)
+
+        assertEquals(listOf("b1"), reminders.map { it.block.id })
+        assertEquals(start - Duration.ofMinutes(10), reminders.single().triggerAt)
+        // A removed block is simply absent from the list, so it gets no alert.
+        assertTrue(ReminderPlanner.studyBlockReminders(emptyList(), TEST_NOW).isEmpty())
     }
 
     @Test

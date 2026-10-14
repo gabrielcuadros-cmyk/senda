@@ -35,6 +35,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.fuerzasalvaje.senda.domain.model.NotificationTarget
 import com.fuerzasalvaje.senda.ui.auth.LoginScreen
 import com.fuerzasalvaje.senda.ui.auth.RegisterScreen
 import com.fuerzasalvaje.senda.ui.calendar.CalendarScreen
@@ -96,6 +97,18 @@ private fun MainNavHost(onSignOut: () -> Unit) {
     val currentTab = Tab.entries.firstOrNull { tab -> destination?.hierarchy?.any { it.hasRoute(tab.route::class) } == true }
     var confirmSignOut by remember { mutableStateOf(false) }
     RequestNotificationPermission()
+    val deepLink by DeepLinks.target.collectAsStateWithLifecycle()
+    LaunchedEffect(deepLink) {
+        val target = deepLink ?: return@LaunchedEffect
+        DeepLinks.consume()
+        when (target) {
+            NotificationTarget.Home -> navController.navigateToTab(Tab.HOME)
+            NotificationTarget.Wellbeing -> navController.navigate(WellbeingRoute) { launchSingleTop = true }
+            is NotificationTarget.Focus -> navController.navigateToTab(Tab.FOCUS)
+            // Home opens the evaluation's detail sheet (see HomeViewModel).
+            is NotificationTarget.EvaluationDetail -> navController.navigateToTab(Tab.HOME)
+        }
+    }
 
     Scaffold(
         topBar = {

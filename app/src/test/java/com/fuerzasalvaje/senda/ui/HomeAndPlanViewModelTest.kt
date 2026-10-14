@@ -4,13 +4,18 @@ import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
 import com.fuerzasalvaje.senda.domain.engine.PriorityEngine
 import com.fuerzasalvaje.senda.domain.model.Availability
+import com.fuerzasalvaje.senda.domain.model.PomodoroSession
 import com.fuerzasalvaje.senda.domain.model.StudyBlockStatus
 import com.fuerzasalvaje.senda.domain.usecase.auth.ObserveSessionUseCase
 import com.fuerzasalvaje.senda.domain.usecase.calendar.ObservePrioritiesUseCase
 import com.fuerzasalvaje.senda.domain.usecase.calendar.ObserveWeekUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ChangeEvaluationStatusUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ObserveEvaluationsUseCase
+import com.fuerzasalvaje.senda.domain.usecase.focus.ObserveTodayExamRoutinesUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.AcceptStudyBlocksUseCase
+import com.fuerzasalvaje.senda.domain.usecase.plan.ObservePendingStudyUseCase
+import com.fuerzasalvaje.senda.domain.usecase.plan.ObserveStudyProgressUseCase
+import com.fuerzasalvaje.senda.testing.FakePomodoroSessionRepository
 import com.fuerzasalvaje.senda.domain.usecase.plan.ObserveAvailabilityUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.ObserveCourseLoadUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.SaveAvailabilityUseCase
@@ -43,6 +48,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import java.io.IOException
+import java.time.Duration
 import java.time.LocalTime
 
 class HomeAndPlanViewModelTest {
@@ -62,6 +68,8 @@ class HomeAndPlanViewModelTest {
     private val gemini = FakeGeminiService()
     private val availability = FakeAvailabilityRepository()
     private val priorities = ObservePrioritiesUseCase(evaluations, courses, PriorityEngine(testClock))
+    private val sessions = FakePomodoroSessionRepository()
+    private val progress = ObserveStudyProgressUseCase(evaluations, blocks, sessions)
 
     private fun homeViewModel() = HomeViewModel(
         observeSession = ObserveSessionUseCase(FakeAuthRepository()),
@@ -71,8 +79,10 @@ class HomeAndPlanViewModelTest {
         observeTodayStress = ObserveTodayStressUseCase(stress, testClock),
         observeCourseLoad = ObserveCourseLoadUseCase(evaluations, courses, testClock),
         observeLatestTip = ObserveLatestTipUseCase(recommendations),
+        observeStudyProgress = progress,
+        observeRoutines = ObserveTodayExamRoutinesUseCase(evaluations, courses, testClock),
         saveStress = SaveStressCheckInUseCase(stress, testClock),
-        generateTips = GenerateStudyTipsUseCase(gemini, priorities, courses, blocks, recommendations, testClock),
+        generateTips = GenerateStudyTipsUseCase(gemini, priorities, courses, blocks, sessions, recommendations, testClock),
         changeStatus = ChangeEvaluationStatusUseCase(evaluations),
         clock = testClock,
     )
@@ -80,8 +90,9 @@ class HomeAndPlanViewModelTest {
     private fun planViewModel() = StudyPlanViewModel(
         observeCourseLoad = ObserveCourseLoadUseCase(evaluations, courses, testClock),
         observeAvailability = ObserveAvailabilityUseCase(availability),
+        observePendingStudy = ObservePendingStudyUseCase(priorities, courses, progress),
         saveAvailability = SaveAvailabilityUseCase(availability),
-        suggestBlocks = SuggestStudyBlocksUseCase(evaluations, courses, blocks, availability, PriorityEngine(testClock), testClock),
+        suggestBlocks = SuggestStudyBlocksUseCase(evaluations, courses, blocks, availability, sessions, PriorityEngine(testClock), testClock),
         acceptBlocks = AcceptStudyBlocksUseCase(blocks),
         clock = testClock,
     )
@@ -126,6 +137,38 @@ class HomeAndPlanViewModelTest {
         assertEquals(listOf("fisica", "quimica"), request.pendingItems.map { it.title })
         assertEquals(10.0, request.pendingItems.first().pendingStudyHours, 0.0)
         assertEquals(1, recommendations.items.value.size)
+    }
+
+    @Test
+    fun `tips receive this week's pomodoro minutes and pending hours discount them`() = runTest {
+        sessions.seed(
+            PomodoroSession(id = "now", evaluationId = "fisica", startedAt = testClock.instant(), focusMinutes = 25, completedCycles = 2),
+            // Sunday, the week before: not part of this week's minutes.
+            PomodoroSession(id = "old", startedAt = testClock.instant().minus(Duration.ofDays(1)), focusMinutes = 25, completedCycles = 1),
+        )
+        val vm = homeViewModel()
+        vm.state.test {
+            home { true }
+            vm.checkIn(3)
+            home { it.stressLevel == 3 }
+            vm.generateTip()
+            home { it.tip != null && !it.tipState.loading }
+            cancelAndIgnoreRemainingEvents()
+        }
+        val request = gemini.lastTipsRequest!!
+        assertEquals(50, request.weeklyPomodoroMinutes)
+        assertEquals((600 - 50) / 60.0, request.pendingItems.first { it.title == "fisica" }.pendingStudyHours, 0.001)
+    }
+
+    @Test
+    fun `home shows pending study hours after pomodoros`() = runTest {
+        sessions.seed(PomodoroSession(id = "p", evaluationId = "quimica", startedAt = testClock.instant(), focusMinutes = 30, completedCycles = 1))
+        homeViewModel().state.test {
+            val state = home { it.studyProgress.isNotEmpty() }
+            assertEquals(90, state.studyProgress.getValue("quimica").pendingMinutes)
+            assertEquals(600, state.studyProgress.getValue("fisica").pendingMinutes)
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     @Test

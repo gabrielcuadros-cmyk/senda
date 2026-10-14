@@ -52,6 +52,7 @@ class GeminiPrompts(private val json: Json) {
         system = TUTOR_RULES,
         user = buildString {
             appendLine("Nivel de estrés de hoy (1 a 5): ${request.stressLevel}")
+            appendLine("Minutos de Pomodoro completados esta semana: ${request.weeklyPomodoroMinutes}")
             appendLine("Pendientes ordenados por prioridad:")
             request.pendingItems
                 .sortedByDescending { it.priorityScore }

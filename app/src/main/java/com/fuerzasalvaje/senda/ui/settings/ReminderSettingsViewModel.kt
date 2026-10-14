@@ -31,6 +31,7 @@ class ReminderSettingsViewModel @Inject constructor(
     fun setDailySummary(value: Boolean) = update { it.copy(dailySummaryEnabled = value) }
     fun setRestReminder(value: Boolean) = update { it.copy(restReminderEnabled = value) }
     fun setExamRoutine(value: Boolean) = update { it.copy(examRoutineEnabled = value) }
+    fun setStudyBlockAlerts(value: Boolean) = update { it.copy(studyBlockAlertsEnabled = value) }
 
     /** Turns one of the default anticipations (3 days, 1 day, 2 hours) on or off, keeping their order. */
     fun setOffset(offset: Duration, on: Boolean) = update { current ->

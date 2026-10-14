@@ -1,7 +1,9 @@
 package com.fuerzasalvaje.senda.domain.usecase.wellbeing
 
+import com.fuerzasalvaje.senda.domain.engine.CalendarPlanner
 import com.fuerzasalvaje.senda.domain.model.AIRecommendation
 import com.fuerzasalvaje.senda.domain.model.PendingStudyItem
+import com.fuerzasalvaje.senda.domain.model.PomodoroSession
 import com.fuerzasalvaje.senda.domain.model.RecommendationType
 import com.fuerzasalvaje.senda.domain.model.SendaRules
 import com.fuerzasalvaje.senda.domain.model.StressCheckIn
@@ -9,6 +11,7 @@ import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
 import com.fuerzasalvaje.senda.domain.repository.AIRecommendationRepository
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
 import com.fuerzasalvaje.senda.domain.repository.GeminiService
+import com.fuerzasalvaje.senda.domain.repository.PomodoroSessionRepository
 import com.fuerzasalvaje.senda.domain.repository.StressCheckInRepository
 import com.fuerzasalvaje.senda.domain.repository.StudyBlockRepository
 import com.fuerzasalvaje.senda.domain.usecase.calendar.ObservePrioritiesUseCase
@@ -56,22 +59,24 @@ class GenerateStudyTipsUseCase @Inject constructor(
     private val priorities: ObservePrioritiesUseCase,
     private val courses: CourseRepository,
     private val studyBlocks: StudyBlockRepository,
+    private val pomodoroSessions: PomodoroSessionRepository,
     private val recommendations: AIRecommendationRepository,
     private val clock: Clock,
 ) {
     suspend operator fun invoke(stressLevel: Int): Result<AIRecommendation> {
         val courseNames = courses.observeAll().first().associate { it.id to it.name }
         val blocks = studyBlocks.observeAll().first()
+        val sessions = pomodoroSessions.observeAll().first()
         val items = priorities().first().take(MAX_ITEMS).map {
             PendingStudyItem(
                 title = it.phase?.let { phase -> "${it.evaluation.title} (${phase.name})" } ?: it.evaluation.title,
                 courseName = courseNames[it.evaluation.courseId].orEmpty(),
                 priorityScore = it.normalizedScore.toDouble(),
                 hoursUntilDue = it.hoursRemaining.toLong(),
-                pendingStudyHours = pendingStudyMinutes(it.evaluation, blocks) / 60.0,
+                pendingStudyHours = pendingStudyMinutes(it.evaluation, blocks, sessions) / 60.0,
             )
         }
-        return gemini.studyTips(StudyTipsRequest(stressLevel, items)).mapCatching { text ->
+        return gemini.studyTips(StudyTipsRequest(stressLevel, items, weeklyPomodoroMinutes(sessions))).mapCatching { text ->
             val recommendation = AIRecommendation(
                 id = UUID.randomUUID().toString(),
                 type = RecommendationType.STUDY_TIPS,
@@ -82,6 +87,12 @@ class GenerateStudyTipsUseCase @Inject constructor(
             recommendations.save(recommendation).getOrThrow()
             recommendation
         }
+    }
+
+    /** Focus minutes of the sessions started since Monday of the current week. */
+    private fun weeklyPomodoroMinutes(sessions: List<PomodoroSession>): Int {
+        val weekStart = CalendarPlanner.weekStartOf(LocalDate.now(clock)).atStartOfDay(clock.zone).toInstant()
+        return sessions.filter { !it.startedAt.isBefore(weekStart) }.sumOf { it.focusedMinutes }
     }
 
     private companion object {

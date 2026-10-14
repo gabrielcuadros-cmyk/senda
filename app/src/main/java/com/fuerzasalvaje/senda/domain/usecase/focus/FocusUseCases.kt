@@ -5,14 +5,15 @@ import com.fuerzasalvaje.senda.domain.engine.EvaluationReminder
 import com.fuerzasalvaje.senda.domain.engine.ExamRoutine
 import com.fuerzasalvaje.senda.domain.engine.PriorityItem
 import com.fuerzasalvaje.senda.domain.engine.ReminderPlanner
+import com.fuerzasalvaje.senda.domain.engine.StudyBlockReminder
 import com.fuerzasalvaje.senda.domain.model.CalendarEntry
 import com.fuerzasalvaje.senda.domain.model.PomodoroConfig
-import com.fuerzasalvaje.senda.domain.model.PomodoroSession
 import com.fuerzasalvaje.senda.domain.model.ReminderSetting
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
 import com.fuerzasalvaje.senda.domain.repository.PomodoroSessionRepository
 import com.fuerzasalvaje.senda.domain.repository.SettingsRepository
+import com.fuerzasalvaje.senda.domain.repository.StudyBlockRepository
 import com.fuerzasalvaje.senda.domain.usecase.calendar.ObservePrioritiesUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -32,11 +33,6 @@ class SavePomodoroConfigUseCase @Inject constructor(private val settings: Settin
         if (!config.isValid) return Result.failure(IllegalArgumentException("Pomodoro config out of range"))
         return settings.savePomodoro(config)
     }
-}
-
-/** Stores a Pomodoro session; called when it starts and after every finished focus block. */
-class SavePomodoroSessionUseCase @Inject constructor(private val repository: PomodoroSessionRepository) {
-    suspend operator fun invoke(session: PomodoroSession): Result<Unit> = repository.save(session)
 }
 
 /** Focus blocks finished today, across every session. */
@@ -64,23 +60,31 @@ data class ReminderPlan(
     val setting: ReminderSetting,
     val evaluationReminders: List<EvaluationReminder>,
     val examRoutines: List<ExamRoutine>,
+    val studyBlockReminders: List<StudyBlockReminder> = emptyList(),
+    /** Evaluation titles by id, for the study block alerts. */
+    val evaluationTitles: Map<String, String> = emptyMap(),
 )
 
-/** KB-02, KB-04, D-13, D-15: future evaluation reminders and between-exam routines, live. */
+/** KB-02, KB-04, D-13, D-15: future evaluation reminders, study block alerts and between-exam routines, live. */
 class ObserveReminderPlanUseCase @Inject constructor(
     private val evaluations: EvaluationRepository,
     private val courses: CourseRepository,
+    private val studyBlocks: StudyBlockRepository,
     private val settings: SettingsRepository,
     private val clock: Clock,
 ) {
     operator fun invoke(): Flow<ReminderPlan> =
-        combine(evaluations.observeAll(), courses.observeAll(), settings.observeReminders()) { evaluationList, courseList, setting ->
+        combine(
+            evaluations.observeAll(), courses.observeAll(), studyBlocks.observeAll(), settings.observeReminders(),
+        ) { evaluationList, courseList, blocks, setting ->
             val entries = CalendarPlanner.entries(evaluationList, courseList)
             val now = clock.instant()
             ReminderPlan(
                 setting = setting,
                 evaluationReminders = ReminderPlanner.evaluationReminders(entries, setting, now),
                 examRoutines = if (setting.examRoutineEnabled) ReminderPlanner.examRoutines(entries, clock.zone, now) else emptyList(),
+                studyBlockReminders = if (setting.studyBlockAlertsEnabled) ReminderPlanner.studyBlockReminders(blocks, now) else emptyList(),
+                evaluationTitles = evaluationList.associate { it.id to it.title },
             )
         }
 }

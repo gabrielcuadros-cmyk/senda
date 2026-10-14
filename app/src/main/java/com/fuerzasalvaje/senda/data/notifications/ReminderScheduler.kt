@@ -9,7 +9,7 @@ import androidx.work.WorkManager
 import com.fuerzasalvaje.senda.data.remote.SessionProvider
 import com.fuerzasalvaje.senda.di.ApplicationScope
 import com.fuerzasalvaje.senda.domain.model.ReminderSetting
-import com.fuerzasalvaje.senda.domain.repository.PomodoroAlarm
+import com.fuerzasalvaje.senda.domain.model.NotificationTarget
 import com.fuerzasalvaje.senda.domain.usecase.focus.ObserveReminderPlanUseCase
 import com.fuerzasalvaje.senda.domain.usecase.focus.ReminderPlan
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -28,8 +28,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Keeps WorkManager in line with the student's data (KB-02, KB-04, D-13, D-15): evaluation reminders and
- * between-exam routines are rebuilt whenever evaluations or preferences change; the 07:30 summary and the
+ * Keeps WorkManager in line with the student's data (KB-02, KB-04, D-13, D-15): evaluation reminders, study
+ * block alerts and between-exam routines are rebuilt whenever evaluations or preferences change; the 07:30 summary and the
  * 22:30 rest reminder are daily periodic work. Everything is cancelled on sign-out.
  */
 @Singleton
@@ -68,9 +68,22 @@ class ReminderScheduler @Inject constructor(
                 name = "reminder:${reminder.key}",
                 at = reminder.triggerAt,
                 now = now,
-                channel = SendaChannel.REMINDERS,
+                channel = SendaChannel.EVALUATIONS,
                 title = ReminderTexts.evaluationTitle(reminder),
                 text = ReminderTexts.evaluationText(reminder, clock.zone),
+                target = NotificationTarget.EvaluationDetail(reminder.entry.evaluation.id),
+            )
+        }
+        plan.studyBlockReminders.take(MAX_EVENTS).forEach { reminder ->
+            val evaluationId = reminder.block.evaluationId
+            enqueueEvent(
+                name = "study:${reminder.key}",
+                at = reminder.triggerAt,
+                now = now,
+                channel = SendaChannel.STUDY,
+                title = ReminderTexts.studyBlockTitle(evaluationId?.let(plan.evaluationTitles::get)),
+                text = ReminderTexts.studyBlockText(reminder.block, clock.zone),
+                target = NotificationTarget.Focus(evaluationId),
             )
         }
         plan.examRoutines.take(MAX_EVENTS).forEach { routine ->
@@ -81,15 +94,24 @@ class ReminderScheduler @Inject constructor(
                 channel = SendaChannel.WELLBEING,
                 title = ReminderTexts.routineTitle(routine),
                 text = ReminderTexts.routineText(routine, clock.zone),
+                target = NotificationTarget.Wellbeing,
             )
         }
         scheduleDaily(plan.setting)
     }
 
-    private fun enqueueEvent(name: String, at: Instant, now: Instant, channel: SendaChannel, title: String, text: String) {
+    private fun enqueueEvent(
+        name: String,
+        at: Instant,
+        now: Instant,
+        channel: SendaChannel,
+        title: String,
+        text: String,
+        target: NotificationTarget,
+    ) {
         val request = OneTimeWorkRequestBuilder<NotificationWorker>()
             .setInitialDelay(Duration.between(now, at).toMillis(), TimeUnit.MILLISECONDS)
-            .setInputData(NotificationWorker.input(name.hashCode(), channel, title, text))
+            .setInputData(NotificationWorker.input(name.hashCode(), channel, title, text, target))
             .addTag(TAG_EVENT)
             .addTag(TAG_ALL)
             .build()
@@ -110,7 +132,11 @@ class ReminderScheduler @Inject constructor(
         if (setting.restReminderEnabled) {
             val request = PeriodicWorkRequestBuilder<NotificationWorker>(1, TimeUnit.DAYS)
                 .setInitialDelay(delayUntil(setting.restReminderTime).toMillis(), TimeUnit.MILLISECONDS)
-                .setInputData(NotificationWorker.input(REST_ID, SendaChannel.WELLBEING, ReminderTexts.REST_TITLE, ReminderTexts.REST_TEXT))
+                .setInputData(
+                    NotificationWorker.input(
+                        REST_ID, SendaChannel.WELLBEING, ReminderTexts.REST_TITLE, ReminderTexts.REST_TEXT, NotificationTarget.Wellbeing,
+                    ),
+                )
                 .addTag(TAG_ALL)
                 .build()
             workManager.enqueueUniquePeriodicWork(REST_REMINDER, ExistingPeriodicWorkPolicy.KEEP, request)
@@ -135,32 +161,5 @@ class ReminderScheduler @Inject constructor(
         private const val REST_ID = 2230
         private const val MAX_EVENTS = 60
         private const val SETTLE_MILLIS = 1_000L
-    }
-}
-
-/** Pomodoro end notification through WorkManager, so it arrives with the app in the background. */
-@Singleton
-class WorkManagerPomodoroAlarm @Inject constructor(
-    @param:ApplicationContext private val context: Context,
-    private val clock: Clock,
-) : PomodoroAlarm {
-
-    override fun schedule(at: Instant, title: String, message: String) {
-        val delay = Duration.between(clock.instant(), at).coerceAtLeast(Duration.ZERO)
-        val request = OneTimeWorkRequestBuilder<NotificationWorker>()
-            .setInitialDelay(delay.toMillis(), TimeUnit.MILLISECONDS)
-            .setInputData(NotificationWorker.input(POMODORO_ID, SendaChannel.FOCUS, title, message))
-            .addTag(ReminderScheduler.TAG_ALL)
-            .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(POMODORO_WORK, ExistingWorkPolicy.REPLACE, request)
-    }
-
-    override fun cancel() {
-        WorkManager.getInstance(context).cancelUniqueWork(POMODORO_WORK)
-    }
-
-    private companion object {
-        const val POMODORO_WORK = "pomodoro-end"
-        const val POMODORO_ID = 2525
     }
 }

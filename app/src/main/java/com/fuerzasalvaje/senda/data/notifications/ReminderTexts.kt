@@ -5,6 +5,7 @@ import com.fuerzasalvaje.senda.domain.engine.ExamRoutine
 import com.fuerzasalvaje.senda.domain.model.CalendarEntry
 import com.fuerzasalvaje.senda.domain.model.EvaluationType
 import com.fuerzasalvaje.senda.domain.model.SendaRules
+import com.fuerzasalvaje.senda.domain.model.StudyBlock
 import com.fuerzasalvaje.senda.domain.usecase.focus.DailySummary
 import java.time.Duration
 import java.time.ZoneId
@@ -37,6 +38,13 @@ object ReminderTexts {
     fun routineText(routine: ExamRoutine, zone: ZoneId): String =
         "Terminó ${routine.finished.title}. Tu siguiente examen es a las ${routine.next.start.atZone(zone).format(time)}: " +
             "respira e hidrátate 5 min, repasa ideas clave 5 min y camina 5 min."
+
+    fun studyBlockTitle(evaluationTitle: String?): String =
+        "En ${SendaRules.STUDY_BLOCK_ALERT_MINUTES} min: " + (evaluationTitle?.let { "estudiar $it" } ?: "bloque de estudio")
+
+    fun studyBlockText(block: StudyBlock, zone: ZoneId): String =
+        "Bloque de ${block.startAt.atZone(zone).format(time)} a ${block.endAt.atZone(zone).format(time)}. " +
+            "Toca para empezar un Pomodoro."
 
     const val SUMMARY_TITLE = "Tu día en Senda"
 

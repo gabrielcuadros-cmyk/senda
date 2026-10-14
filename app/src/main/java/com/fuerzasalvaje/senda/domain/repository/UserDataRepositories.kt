@@ -5,6 +5,7 @@ import com.fuerzasalvaje.senda.domain.model.Availability
 import com.fuerzasalvaje.senda.domain.model.Course
 import com.fuerzasalvaje.senda.domain.model.Evaluation
 import com.fuerzasalvaje.senda.domain.model.PomodoroConfig
+import com.fuerzasalvaje.senda.domain.model.PomodoroRun
 import com.fuerzasalvaje.senda.domain.model.PomodoroSession
 import com.fuerzasalvaje.senda.domain.model.Question
 import com.fuerzasalvaje.senda.domain.model.ReminderSetting
@@ -12,7 +13,7 @@ import com.fuerzasalvaje.senda.domain.model.Simulacrum
 import com.fuerzasalvaje.senda.domain.model.StressCheckIn
 import com.fuerzasalvaje.senda.domain.model.StudyBlock
 import kotlinx.coroutines.flow.Flow
-import java.time.Instant
+import kotlinx.coroutines.flow.StateFlow
 import java.time.LocalDate
 
 /**
@@ -60,10 +61,19 @@ interface SettingsRepository {
     suspend fun savePomodoro(config: PomodoroConfig): Result<Unit>
 }
 
-/** Notifies the end of the running Pomodoro step even when the app is in the background. */
-interface PomodoroAlarm {
-    fun schedule(at: Instant, title: String, message: String)
-    fun cancel()
+/**
+ * The single Pomodoro timer of the app (KB-05, D-13). Its state is persisted with timestamps,
+ * so it survives the app being closed; it runs as a foreground service while in progress.
+ */
+interface PomodoroTimer {
+    val run: StateFlow<PomodoroRun>
+    fun start()
+    fun pause()
+    /** Stops and goes back to the first focus block, keeping the chosen evaluation. */
+    fun stop()
+    fun skip()
+    /** Credits the next focus minutes to [evaluationId] (or only to [courseId]); ignored while running. */
+    fun link(evaluationId: String?, courseId: String?, title: String?)
 }
 
 interface StressCheckInRepository : OwnedRepository<StressCheckIn> {

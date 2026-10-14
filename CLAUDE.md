@@ -78,6 +78,7 @@ Detalle completo y origen de cada regla: sección 6 de `docs/CONTEXTO_PROYECTO.m
 
 ## Reglas de trabajo
 
+- Responder siempre al usuario en español.
 - No hardcodear ni mostrar en logs la API Key.
 - No versionar `local.properties` ni `google-services.json`.
 - UI en español; código (nombres, comentarios, commits) en inglés.

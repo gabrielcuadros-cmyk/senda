@@ -19,6 +19,7 @@ firebaseBom = "35.0.0"
 okhttp = "5.5.0"
 kotlinxSerialization = "1.11.0"
 coroutines = "1.11.0"
+pdfboxAndroid = "2.0.27.0"
 
 junit = "4.13.2"
 turbine = "1.2.1"
@@ -75,6 +76,9 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutines" }
+
+# PDF text extraction on the device
+pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfboxAndroid" }
 
 # Tests
 junit = { group = "junit", name = "junit", version.ref = "junit" }

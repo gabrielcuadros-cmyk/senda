@@ -14,6 +14,8 @@ import com.fuerzasalvaje.senda.domain.model.PhaseStatus
 import com.fuerzasalvaje.senda.domain.model.Project
 import com.fuerzasalvaje.senda.domain.model.WeeklyProgress
 import com.fuerzasalvaje.senda.domain.usecase.auth.ObserveSessionUseCase
+import com.fuerzasalvaje.senda.domain.usecase.pdf.ObservePdfDigestsUseCase
+import com.fuerzasalvaje.senda.domain.model.PdfDigest
 import com.fuerzasalvaje.senda.domain.usecase.calendar.ObservePrioritiesUseCase
 import com.fuerzasalvaje.senda.domain.usecase.calendar.ObserveWeekUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ChangeEvaluationStatusUseCase
@@ -96,9 +98,14 @@ class HomeViewModel @Inject constructor(
     private val generateTips: GenerateStudyTipsUseCase,
     private val changeStatus: ChangeEvaluationStatusUseCase,
     private val clock: Clock,
+    observePdfDigests: ObservePdfDigestsUseCase,
 ) : ViewModel() {
 
     val zone: ZoneId get() = clock.zone
+
+    /** PDF summary of each evaluation, for the status line of the detail sheet. */
+    val pdfDigests: StateFlow<Map<String, PdfDigest>> =
+        observePdfDigests().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
     private val selectedId = MutableStateFlow<String?>(null)
     private val tipState = MutableStateFlow(TipUiState())
 

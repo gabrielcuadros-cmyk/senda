@@ -15,6 +15,7 @@ object FirestorePaths {
     const val POMODORO_SESSIONS = "pomodoro_sessions"
     const val STUDY_BLOCKS = "study_blocks"
     const val STRESS_CHECKINS = "stress_checkins"
+    const val PDF_DIGESTS = "pdf_digests"
 }
 
 fun FirebaseFirestore.userDoc(uid: String): DocumentReference =

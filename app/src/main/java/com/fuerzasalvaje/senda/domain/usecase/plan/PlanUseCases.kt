@@ -23,6 +23,7 @@ import com.fuerzasalvaje.senda.domain.usecase.calendar.ObservePrioritiesUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -153,16 +154,13 @@ class SuggestStudyBlocksUseCase @Inject constructor(
         val busy = classRanges(courseList, now, horizonEnd, zone) +
             CalendarPlanner.entries(evaluationList, courseList).filterNot { it.isDeadline }.map { TimeRange(it.start, it.end) } +
             blocks.map { TimeRange(it.startAt, it.endAt) }
-        val minutesByDay = blocks.groupBy { it.startAt.atZone(zone).toLocalDate() }
-            .mapValues { (_, list) -> list.sumOf { Duration.between(it.startAt, it.endAt).toMinutes() }.toInt() }
-
         val plan = FreeSlotPlanner.plan(
             tasks = tasks,
             busy = busy,
             availability = availability.observe().first(),
             now = now,
             zone = zone,
-            alreadyScheduledMinutesByDay = minutesByDay,
+            scheduled = blocks,
         )
         return StudyProposal(plan, evaluationList.associateBy { it.id }, courseList.associateBy { it.id })
     }
@@ -189,6 +187,18 @@ class AcceptStudyBlocksUseCase @Inject constructor(private val repository: Study
             repository.save(block.copy(status = StudyBlockStatus.SCHEDULED)).onFailure { return Result.failure(it) }
         }
         return Result.success(blocks.size)
+    }
+}
+
+/** Removes every accepted block that is not done yet; done blocks stay as studied time. */
+class RemoveSuggestedStudyBlocksUseCase @Inject constructor(private val repository: StudyBlockRepository) {
+    /** How many blocks the action would remove. */
+    fun pendingCount(): Flow<Int> = repository.observeAll().map { list -> list.count { it.status == StudyBlockStatus.SCHEDULED } }
+
+    suspend operator fun invoke(): Result<Int> {
+        val pending = repository.observeAll().first().filter { it.status == StudyBlockStatus.SCHEDULED }
+        pending.forEach { block -> repository.delete(block.id).onFailure { return Result.failure(it) } }
+        return Result.success(pending.size)
     }
 }
 

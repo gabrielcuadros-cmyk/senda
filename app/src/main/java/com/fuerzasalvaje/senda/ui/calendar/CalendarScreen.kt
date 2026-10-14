@@ -90,6 +90,7 @@ fun CalendarScreen(
     viewModel: CalendarViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val pdfDigests by viewModel.pdfDigests.collectAsStateWithLifecycle()
     val zone = viewModel.zone
 
     if (!state.loading && state.courses.isEmpty()) {
@@ -161,6 +162,7 @@ fun CalendarScreen(
             zone = zone,
             highlightedPhase = entry.phase,
             conflicts = state.conflicts.filter { conflict -> conflict.entries.any { it.id == entry.id } },
+            pdfStatus = pdfDigests[entry.evaluation.id]?.status,
             onDismiss = viewModel::close,
             onEdit = { viewModel.close(); onEditEvaluation(entry.evaluation.id) },
             onStatus = { viewModel.setStatus(entry.evaluation, it) },
@@ -377,7 +379,7 @@ private fun EventBlock(entry: CalendarEntry, clashing: Boolean, zone: ZoneId, on
     }
 }
 
-/** HU-14: accepted study block, peach colored. */
+/** HU-14: accepted study block, peach colored and always titled "Estudiar: …" so it never reads as an evaluation. */
 @Composable
 private fun StudyBlockView(entry: StudyBlockEntry, zone: ZoneId, onClick: () -> Unit, modifier: Modifier) {
     val done = entry.block.status == StudyBlockStatus.DONE
@@ -391,13 +393,10 @@ private fun StudyBlockView(entry: StudyBlockEntry, zone: ZoneId, onClick: () -> 
             val roomy = maxHeight >= 44.dp
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        if (done) Icons.Rounded.CheckCircle else Icons.AutoMirrored.Rounded.MenuBook,
-                        contentDescription = if (done) "Hecho" else null,
-                        modifier = Modifier.size(12.dp),
-                    )
+                    Icon(Icons.AutoMirrored.Rounded.MenuBook, contentDescription = "Bloque de estudio", modifier = Modifier.size(12.dp))
+                    if (done) Icon(Icons.Rounded.CheckCircle, contentDescription = "Hecho", modifier = Modifier.padding(start = 2.dp).size(12.dp))
                     Text(
-                        entry.evaluation?.title ?: "Estudio",
+                        entry.title,
                         style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -441,6 +440,7 @@ private fun StudyBlockDialog(
         title = { Text(entry.title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(entry.explanation)
                 Text(Formats.dateTime(entry.block.startAt, zone) + " – " + Formats.time(entry.block.endAt, zone))
                 entry.course?.let { Text(it.name, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 Text("50 minutos de estudio y luego 10 de pausa.", style = MaterialTheme.typography.bodySmall)

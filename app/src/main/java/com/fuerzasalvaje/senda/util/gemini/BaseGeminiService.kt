@@ -2,6 +2,8 @@ package com.fuerzasalvaje.senda.util.gemini
 
 import com.fuerzasalvaje.senda.domain.model.AiError
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
+import com.fuerzasalvaje.senda.domain.model.PdfDigestRequest
+import com.fuerzasalvaje.senda.domain.model.PdfDigestResult
 import com.fuerzasalvaje.senda.domain.model.QuestionRequest
 import com.fuerzasalvaje.senda.domain.model.QuestionVerdict
 import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
@@ -46,7 +48,10 @@ abstract class BaseGeminiService(
      * Only an invalid API key stops the chain. When every model ends with 429 the result is
      * [AiError.FreeLimitReached]; otherwise the last error.
      */
-    private suspend fun generateText(prompt: GeminiPrompt): String {
+    private suspend fun generateText(prompt: GeminiPrompt): String = generateWithModel(prompt).first
+
+    /** [generateText] plus the model of the chain that answered. */
+    private suspend fun generateWithModel(prompt: GeminiPrompt): Pair<String, String> {
         val chain = (listOf(config.model) + config.fallbackModels).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
         val failures = mutableListOf<AiError>()
         var markedRetrying = false
@@ -63,7 +68,7 @@ abstract class BaseGeminiService(
                     logger.warn("Switching to fallback model $model ($index/${chain.size - 1}) after ${failures.last().describe()}")
                 }
                 try {
-                    return sendWithRetries(prompt, model, markRetrying)
+                    return sendWithRetries(prompt, model, markRetrying) to model
                 } catch (e: AiError) {
                     if (e.stopsChain()) throw e
                     failures += e
@@ -80,11 +85,14 @@ abstract class BaseGeminiService(
     }
 
     /** One call with the time limit; a timeout becomes [AiError.Timeout] so the chain moves on. */
-    private suspend fun sendOnce(prompt: GeminiPrompt, model: String): String = try {
-        withTimeout(retryPolicy.callTimeoutMillis) { send(prompt, model) }
-    } catch (e: TimeoutCancellationException) {
-        logger.warn("Gemini timeout after ${retryPolicy.callTimeoutMillis / 1000} s (model=$model)")
-        throw AiError.Timeout(e)
+    private suspend fun sendOnce(prompt: GeminiPrompt, model: String): String {
+        val limit = prompt.timeoutMillis ?: retryPolicy.callTimeoutMillis
+        return try {
+            withTimeout(limit) { send(prompt, model) }
+        } catch (e: TimeoutCancellationException) {
+            logger.warn("Gemini timeout after ${limit / 1000} s (model=$model)")
+            throw AiError.Timeout(e)
+        }
     }
 
     /** One model; only a per-minute rate limit is retried here, everything else goes back to the chain. */
@@ -142,18 +150,29 @@ abstract class BaseGeminiService(
         generateText(prompts.studyTips(request))
     }
 
-    /** One batch with the strict question schema; one more call when the answer is not valid JSON. */
+    /** The text (or, if scanned, the PDF itself) once, with the long time limit. Plain Markdown answer. */
+    override suspend fun digestPdf(request: PdfDigestRequest): Result<PdfDigestResult> = runSafely {
+        val attachments = request.pdfPath?.let { path -> withContext(Dispatchers.IO) { loadPdfs(listOf(path), logger) } }.orEmpty()
+        require(request.text.isNotBlank() || attachments.isNotEmpty()) { "Nothing to summarize" }
+        logger.info(
+            "PDF summary requested: textChars=${request.text.length} " +
+                "scannedPdf=${attachments.sumOf { it.bytes.size } / 1024} KB timeout=${RetryPolicy.DIGEST_TIMEOUT_MILLIS / 1000} s"
+        )
+        val (text, model) = generateWithModel(prompts.digestPdf(request.courseName, request.evaluationTitle, request.text, attachments))
+        PdfDigestResult(text.trim(), model)
+    }
+
+    /** One batch with the strict question schema; one more call when the answer is not valid JSON. No PDF is sent. */
     override suspend fun generateQuestions(request: QuestionRequest): Result<List<GeneratedQuestion>> = runSafely {
         require(request.count > 0) { "count must be positive" }
-        val attachments = withContext(Dispatchers.IO) { loadPdfs(request.pdfPaths, logger) }
-        require(request.syllabus.isNotBlank() || attachments.isNotEmpty()) { "Nothing to generate from" }
+        require(request.syllabus.isNotBlank() || request.studyDigest.isNotBlank()) { "Nothing to generate from" }
         val prompt = prompts.generateQuestions(
-            request.courseName, request.syllabus, request.count, attachments,
+            request.courseName, request.syllabus, request.count, request.studyDigest,
             request.batchIndex, request.batchCount, request.avoidStatements,
         )
         logger.info(
             "Questions requested=${request.count} batch=${request.batchIndex + 1}/${request.batchCount} " +
-                "syllabusChars=${request.syllabus.length} pdfs=${attachments.size} (${attachments.sumOf { it.bytes.size } / 1024} KB)"
+                "syllabusChars=${request.syllabus.length} digestChars=${request.studyDigest.length}"
         )
         parsed(prompt, "Questions") { prompts.parseQuestions(it) }
     }
@@ -161,8 +180,7 @@ abstract class BaseGeminiService(
     override suspend fun reviewQuestions(request: QuestionRequest, questions: List<GeneratedQuestion>): Result<List<QuestionVerdict>> =
         runSafely {
             if (questions.isEmpty()) return@runSafely emptyList()
-            val attachments = withContext(Dispatchers.IO) { loadPdfs(request.pdfPaths, logger) }
-            val prompt = prompts.reviewQuestions(request.courseName, request.syllabus, questions, attachments)
+            val prompt = prompts.reviewQuestions(request.courseName, request.syllabus, questions, request.studyDigest)
             parsed(prompt, "Review") { prompts.parseReview(it) }
         }
 

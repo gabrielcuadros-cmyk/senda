@@ -4,6 +4,8 @@ import com.fuerzasalvaje.senda.domain.model.AIRecommendation
 import com.fuerzasalvaje.senda.domain.model.Availability
 import com.fuerzasalvaje.senda.domain.model.Course
 import com.fuerzasalvaje.senda.domain.model.Evaluation
+import com.fuerzasalvaje.senda.domain.model.PdfDigest
+import com.fuerzasalvaje.senda.domain.model.PdfText
 import com.fuerzasalvaje.senda.domain.model.PomodoroConfig
 import com.fuerzasalvaje.senda.domain.model.PomodoroRun
 import com.fuerzasalvaje.senda.domain.model.PomodoroSession
@@ -47,6 +49,27 @@ interface AIRecommendationRepository : OwnedRepository<AIRecommendation>
 interface PomodoroSessionRepository : OwnedRepository<PomodoroSession>
 
 interface StudyBlockRepository : OwnedRepository<StudyBlock>
+
+/** Study summaries of exam and lab PDFs, one per evaluation (id = evaluation id). */
+interface PdfDigestRepository : OwnedRepository<PdfDigest> {
+    fun observeByCourse(courseId: String): Flow<List<PdfDigest>>
+}
+
+/** Runs the PDF summary in the background, with retries, so it never blocks a screen. */
+interface PdfDigestScheduler {
+    /** [restart] replaces a job already running for the evaluation (a new PDF was attached). */
+    fun schedule(evaluationId: String, restart: Boolean = false)
+
+    /** Does nothing: for tests and code paths without background work. */
+    object None : PdfDigestScheduler {
+        override fun schedule(evaluationId: String, restart: Boolean) = Unit
+    }
+}
+
+/** Reads the text layer of a local PDF on the device. */
+interface PdfTextExtractor {
+    suspend fun extract(path: String): Result<PdfText>
+}
 
 /** Daily study availability of the signed-in student (D-9). Emits the default until one is saved. */
 interface AvailabilityRepository {

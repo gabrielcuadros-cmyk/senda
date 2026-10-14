@@ -1,6 +1,7 @@
 package com.fuerzasalvaje.senda.util.gemini
 
 import com.fuerzasalvaje.senda.domain.model.AiError
+import com.fuerzasalvaje.senda.domain.model.PdfDigestRequest
 import com.fuerzasalvaje.senda.domain.model.QuestionRequest
 import com.fuerzasalvaje.senda.testing.FakeAiLogger
 import kotlinx.coroutines.test.runTest
@@ -67,14 +68,37 @@ class BaseGeminiServiceTest {
     }
 
     @Test
-    fun `the PDF goes in the prompt and logs never contain the content`() = runTest {
-        val pdf = folder.newFile("guia.pdf").apply { writeBytes("%PDF-1.4 contenido".toByteArray()) }
+    fun `questions are generated from the PDF summary, never with the PDF attached`() = runTest {
         val service = ScriptedService(good)
 
-        service.generateQuestions(QuestionRequest("Física", "", 10, listOf(pdf.path))).getOrThrow()
+        service.generateQuestions(QuestionRequest("Física", "", 10, studyDigest = "- v = d / t (diap. 4)")).getOrThrow()
 
-        assertEquals(1, service.prompts.single().attachments.size)
-        assertTrue(logger.lines.any { it.contains("pdfs=1") })
-        assertTrue(logger.lines.none { it.contains("%PDF") })
+        assertTrue(service.prompts.single().attachments.isEmpty())
+        assertTrue(logger.lines.any { it.contains("digestChars=21") })
+        assertTrue(logger.lines.none { it.contains("v = d / t") })
+    }
+
+    @Test
+    fun `a scanned PDF is attached once to the summary call, with 120 s, and logs never contain the content`() = runTest {
+        val pdf = folder.newFile("guia.pdf").apply { writeBytes("%PDF-1.4 contenido".toByteArray()) }
+        val service = ScriptedService("## Fórmulas\n- v = d / t (diap. 4)")
+
+        val result = service.digestPdf(PdfDigestRequest("Física", "Parcial 1", text = "", pdfPath = pdf.path)).getOrThrow()
+
+        assertEquals("main-model", result.model)
+        val prompt = service.prompts.single()
+        assertEquals(1, prompt.attachments.size)
+        assertEquals(RetryPolicy.DIGEST_TIMEOUT_MILLIS, prompt.timeoutMillis)
+        assertTrue(logger.lines.none { it.contains("%PDF") || it.contains("v = d / t") })
+    }
+
+    @Test
+    fun `a PDF with text is summarized from its text`() = runTest {
+        val service = ScriptedService("- Resumen (diap. 1)")
+
+        service.digestPdf(PdfDigestRequest("Física", "Parcial 1", text = "[Página 1]\nCinemática")).getOrThrow()
+
+        assertTrue(service.prompts.single().attachments.isEmpty())
+        assertTrue(service.prompts.single().user.contains("[Página 1]\nCinemática"))
     }
 }

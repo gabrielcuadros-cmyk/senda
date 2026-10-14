@@ -58,6 +58,7 @@ import com.fuerzasalvaje.senda.ui.components.Formats
 import com.fuerzasalvaje.senda.ui.components.Pill
 import com.fuerzasalvaje.senda.ui.components.SegmentedSelector
 import com.fuerzasalvaje.senda.ui.components.SelectField
+import com.fuerzasalvaje.senda.ui.components.PdfDigestStatusLine
 import com.fuerzasalvaje.senda.ui.components.SendaCard
 import com.fuerzasalvaje.senda.ui.components.TimeField
 import com.fuerzasalvaje.senda.ui.components.label
@@ -116,6 +117,7 @@ fun CourseListScreen(
                                 // Below the name, not beside it: beside it squeezed the name on 360 dp.
                                 Spacer(Modifier.height(6.dp))
                                 Pill("Importancia ${item.course.importance.label.lowercase()}", MaterialTheme.colorScheme.surfaceVariant)
+                                item.pdfStatus?.let { PdfDigestStatusLine(it, Modifier.padding(top = 6.dp)) }
                             }
                         }
                     }

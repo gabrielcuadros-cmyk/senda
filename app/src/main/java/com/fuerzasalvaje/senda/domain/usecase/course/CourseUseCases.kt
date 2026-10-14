@@ -10,6 +10,7 @@ import com.fuerzasalvaje.senda.domain.repository.QuestionRepository
 import com.fuerzasalvaje.senda.domain.repository.SimulacrumRepository
 import com.fuerzasalvaje.senda.domain.repository.StudyBlockRepository
 import com.fuerzasalvaje.senda.domain.model.localPdfPath
+import com.fuerzasalvaje.senda.domain.usecase.pdf.TrackPdfDigestUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -35,7 +36,7 @@ class SaveCourseUseCase @Inject constructor(private val repository: CourseReposi
 }
 
 /**
- * Deletes a course together with everything that belongs to it: evaluations and their local PDFs,
+ * Deletes a course together with everything that belongs to it: evaluations and their local PDFs and summaries,
  * study blocks, the question bank and the mock exam attempts.
  */
 class DeleteCourseUseCase @Inject constructor(
@@ -45,10 +46,12 @@ class DeleteCourseUseCase @Inject constructor(
     private val studyBlocks: StudyBlockRepository,
     private val questions: QuestionRepository,
     private val simulacra: SimulacrumRepository,
+    private val trackPdf: TrackPdfDigestUseCase? = null,
 ) {
     suspend operator fun invoke(courseId: String): Result<Unit> {
         evaluations.observeByCourse(courseId).first().forEach { evaluation ->
             evaluation.localPdfPath?.let { storage.delete(it) }
+            trackPdf?.onDeleted(evaluation.id)
             evaluations.delete(evaluation.id)
         }
         studyBlocks.observeAll().first().filter { it.courseId == courseId }.forEach { studyBlocks.delete(it.id) }

@@ -51,13 +51,20 @@ data class EvaluationFilter(
     val isActive: Boolean get() = types.isNotEmpty() || courseId != null
 }
 
+/** Calendar and plan title of a study block: "Estudiar: <evaluation>". */
+fun studyBlockTitle(evaluationTitle: String?): String = evaluationTitle?.let { "Estudiar: $it" } ?: "Bloque de estudio"
+
 /** An accepted study block shown on the calendar (HU-14), with what it is for. */
 data class StudyBlockEntry(
     val block: StudyBlock,
     val evaluation: Evaluation?,
     val course: Course?,
 ) {
-    val title: String get() = evaluation?.title?.let { "Estudiar: $it" } ?: "Bloque de estudio"
+    val title: String get() = studyBlockTitle(evaluation?.title)
+
+    /** Shown when the block is opened, so it is not mistaken for an evaluation. */
+    val explanation: String
+        get() = "Bloque de estudio sugerido para ${evaluation?.title ?: "tus evaluaciones"}. Puedes marcarlo como hecho o quitarlo."
 }
 
 data class WeekAgenda(

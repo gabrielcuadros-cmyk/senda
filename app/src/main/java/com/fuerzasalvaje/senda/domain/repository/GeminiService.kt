@@ -1,6 +1,8 @@
 package com.fuerzasalvaje.senda.domain.repository
 
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
+import com.fuerzasalvaje.senda.domain.model.PdfDigestRequest
+import com.fuerzasalvaje.senda.domain.model.PdfDigestResult
 import com.fuerzasalvaje.senda.domain.model.QuestionRequest
 import com.fuerzasalvaje.senda.domain.model.QuestionVerdict
 import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
@@ -28,7 +30,13 @@ interface GeminiService {
     suspend fun studyTips(request: StudyTipsRequest): Result<String>
 
     /**
-     * Generates multiple-choice and case questions from the syllabus and the attached PDFs.
+     * Summarizes one PDF for study, once: concepts, definitions, formulas, figures, cases and examples, each with
+     * its page or slide. Allows a longer call than the other features (120 s).
+     */
+    suspend fun digestPdf(request: PdfDigestRequest): Result<PdfDigestResult>
+
+    /**
+     * Generates multiple-choice and case questions from the syllabus and the PDF study summaries.
      * Returns every question received, valid or not: the caller validates them.
      */
     suspend fun generateQuestions(request: QuestionRequest): Result<List<GeneratedQuestion>>

@@ -5,11 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.fuerzasalvaje.senda.domain.engine.CourseLoadReport
 import com.fuerzasalvaje.senda.domain.model.Availability
 import com.fuerzasalvaje.senda.domain.model.StudyBlock
+import com.fuerzasalvaje.senda.domain.model.studyBlockTitle
 import com.fuerzasalvaje.senda.domain.usecase.plan.AcceptStudyBlocksUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.ObserveAvailabilityUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.ObserveCourseLoadUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.ObservePendingStudyUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.PendingStudyLine
+import com.fuerzasalvaje.senda.domain.usecase.plan.RemoveSuggestedStudyBlocksUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.SaveAvailabilityUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.SuggestStudyBlocksUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -47,6 +49,8 @@ data class StudyPlanUiState(
     val proposal: ProposalUiState = ProposalUiState(),
     /** Pending evaluations with the hours still missing after blocks and Pomodoros. */
     val pendingStudy: List<PendingStudyLine> = emptyList(),
+    /** Accepted blocks not done yet: what "Quitar todos los bloques sugeridos" would remove. */
+    val scheduledBlocks: Int = 0,
 )
 
 /** HU-13 and HU-14: hours per course, availability and the "Aceptar y agendar" proposal. */
@@ -58,6 +62,7 @@ class StudyPlanViewModel @Inject constructor(
     private val saveAvailability: SaveAvailabilityUseCase,
     private val suggestBlocks: SuggestStudyBlocksUseCase,
     private val acceptBlocks: AcceptStudyBlocksUseCase,
+    private val removeSuggested: RemoveSuggestedStudyBlocksUseCase,
     private val clock: Clock,
 ) : ViewModel() {
 
@@ -65,8 +70,21 @@ class StudyPlanViewModel @Inject constructor(
     private val proposal = MutableStateFlow(ProposalUiState())
 
     val state: StateFlow<StudyPlanUiState> =
-        combine(observeCourseLoad(), observeAvailability(), proposal, observePendingStudy()) { report, availability, proposalState, pending ->
-            StudyPlanUiState(loading = false, report = report, availability = availability, proposal = proposalState, pendingStudy = pending)
+        combine(
+            observeCourseLoad(),
+            observeAvailability(),
+            proposal,
+            observePendingStudy(),
+            removeSuggested.pendingCount(),
+        ) { report, availability, proposalState, pending, scheduled ->
+            StudyPlanUiState(
+                loading = false,
+                report = report,
+                availability = availability,
+                proposal = proposalState,
+                pendingStudy = pending,
+                scheduledBlocks = scheduled,
+            )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StudyPlanUiState())
 
     fun onStart(time: LocalTime) = updateAvailability(state.value.availability.copy(start = time))
@@ -91,7 +109,7 @@ class StudyPlanViewModel @Inject constructor(
                 val evaluation = block.evaluationId?.let(result.evaluations::get)
                 SuggestedBlock(
                     block = block,
-                    title = evaluation?.title ?: "Estudio",
+                    title = studyBlockTitle(evaluation?.title),
                     courseName = result.courses[block.courseId]?.name.orEmpty(),
                 )
             }
@@ -114,6 +132,20 @@ class StudyPlanViewModel @Inject constructor(
                     }
                 },
                 onFailure = { proposal.update { it.copy(accepting = false, message = "No se pudieron agendar los bloques.") } },
+            )
+        }
+    }
+
+    /** Removes every accepted block that is not done yet; the screen asks for confirmation first. */
+    fun removeAllSuggested() {
+        viewModelScope.launch {
+            removeSuggested().fold(
+                onSuccess = { count ->
+                    proposal.update {
+                        it.copy(message = "Quitamos $count ${if (count == 1) "bloque" else "bloques"} de estudio de tu calendario.")
+                    }
+                },
+                onFailure = { proposal.update { it.copy(message = "No se pudieron quitar los bloques.") } },
             )
         }
     }

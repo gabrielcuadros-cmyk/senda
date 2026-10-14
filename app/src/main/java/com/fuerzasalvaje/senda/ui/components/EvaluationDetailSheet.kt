@@ -1,5 +1,6 @@
 package com.fuerzasalvaje.senda.ui.components
 
+import com.fuerzasalvaje.senda.domain.model.PdfDigestStatus
 import com.fuerzasalvaje.senda.domain.model.localPdfPath
 import com.fuerzasalvaje.senda.domain.engine.Validators
 import androidx.compose.ui.platform.LocalContext
@@ -54,6 +55,8 @@ fun EvaluationDetailSheet(
     onPhaseStatus: (ProjectPhase, PhaseStatus) -> Unit,
     highlightedPhase: ProjectPhase? = null,
     conflicts: List<Conflict> = emptyList(),
+    /** Where the PDF summary stands; also shown when the PDF lives on another device. */
+    pdfStatus: PdfDigestStatus? = null,
 ) {
     val context = LocalContext.current
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -95,6 +98,7 @@ fun EvaluationDetailSheet(
             Detail("Peso", Formats.percent(evaluation.weightPercent))
             Detail("Horas de estudio", Formats.hours(evaluation.studyHours))
 
+            pdfStatus?.let { PdfDigestStatusLine(it) }
             evaluation.localPdfPath?.let { path ->
                 OutlinedButton(onClick = { openLocalPdf(context, path) }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Rounded.PictureAsPdf, contentDescription = null)

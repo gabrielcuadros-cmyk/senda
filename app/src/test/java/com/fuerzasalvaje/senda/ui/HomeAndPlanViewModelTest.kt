@@ -40,6 +40,7 @@ import com.fuerzasalvaje.senda.ui.home.HomeUiState
 import com.fuerzasalvaje.senda.ui.home.HomeViewModel
 import com.fuerzasalvaje.senda.ui.plan.StudyPlanUiState
 import com.fuerzasalvaje.senda.ui.plan.StudyPlanViewModel
+import com.fuerzasalvaje.senda.domain.usecase.plan.RemoveSuggestedStudyBlocksUseCase
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -85,6 +86,7 @@ class HomeAndPlanViewModelTest {
         generateTips = GenerateStudyTipsUseCase(gemini, priorities, courses, blocks, sessions, recommendations, testClock),
         changeStatus = ChangeEvaluationStatusUseCase(evaluations),
         clock = testClock,
+        observePdfDigests = com.fuerzasalvaje.senda.domain.usecase.pdf.ObservePdfDigestsUseCase(com.fuerzasalvaje.senda.testing.FakePdfDigestRepository()),
     )
 
     private fun planViewModel() = StudyPlanViewModel(
@@ -94,6 +96,7 @@ class HomeAndPlanViewModelTest {
         saveAvailability = SaveAvailabilityUseCase(availability),
         suggestBlocks = SuggestStudyBlocksUseCase(evaluations, courses, blocks, availability, sessions, PriorityEngine(testClock), testClock),
         acceptBlocks = AcceptStudyBlocksUseCase(blocks),
+        removeSuggested = RemoveSuggestedStudyBlocksUseCase(blocks),
         clock = testClock,
     )
 
@@ -207,6 +210,26 @@ class HomeAndPlanViewModelTest {
             assertNull(accepted.proposal.blocks)
             assertEquals(proposed.size, blocks.items.value.size)
             assertTrue(blocks.items.value.values.all { it.status == StudyBlockStatus.SCHEDULED })
+            assertTrue(proposed.all { it.title.startsWith("Estudiar: ") })
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `removing all suggested blocks empties the calendar`() = runTest {
+        val vm = planViewModel()
+        vm.state.test {
+            plan { true }
+            vm.suggest()
+            plan { it.proposal.blocks?.isNotEmpty() == true }
+            vm.accept()
+            val accepted = plan { it.scheduledBlocks > 0 }.scheduledBlocks
+            vm.consumeMessage()
+
+            vm.removeAllSuggested()
+            val removed = plan { it.scheduledBlocks == 0 && it.proposal.message != null }
+            assertEquals("Quitamos $accepted bloques de estudio de tu calendario.", removed.proposal.message)
+            assertTrue(blocks.items.value.isEmpty())
             cancelAndIgnoreRemainingEvents()
         }
     }

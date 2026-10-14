@@ -130,3 +130,19 @@ data class StressCheckInEntity(
     val level: Int,
     val createdAt: Long,
 )
+
+/** Study summary of an evaluation's PDF (id = evaluation id). [extractedText] stays on this device. */
+@Entity(tableName = "pdf_digests", indices = [Index("ownerUid"), Index("courseId")])
+data class PdfDigestEntity(
+    @PrimaryKey val id: String,
+    val ownerUid: String,
+    val courseId: String,
+    val pdfKey: String,
+    val status: String,
+    val pageCount: Int,
+    val extractedChars: Int,
+    val scanned: Boolean,
+    val summary: String,
+    val updatedAt: Long,
+    val extractedText: String?,
+)

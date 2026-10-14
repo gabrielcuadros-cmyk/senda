@@ -7,6 +7,8 @@ import com.fuerzasalvaje.senda.domain.model.AuthError
 import com.fuerzasalvaje.senda.domain.model.Exam
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
 import com.fuerzasalvaje.senda.domain.model.Lab
+import com.fuerzasalvaje.senda.domain.model.localPdfPath
+import com.fuerzasalvaje.senda.domain.model.pdfKeyOf
 import com.fuerzasalvaje.senda.domain.model.Question
 import com.fuerzasalvaje.senda.domain.model.QuestionReport
 import com.fuerzasalvaje.senda.domain.model.QuestionRequest
@@ -17,6 +19,8 @@ import com.fuerzasalvaje.senda.domain.repository.AiLogger
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
 import com.fuerzasalvaje.senda.domain.repository.GeminiService
+import com.fuerzasalvaje.senda.domain.repository.PdfDigestRepository
+import com.fuerzasalvaje.senda.domain.repository.PdfDigestScheduler
 import com.fuerzasalvaje.senda.domain.repository.QuestionPrefetcher
 import com.fuerzasalvaje.senda.domain.repository.QuestionRepository
 import com.fuerzasalvaje.senda.domain.repository.SimulacrumRepository
@@ -42,29 +46,56 @@ class MissingSyllabusException : IllegalStateException("The course has no usable
 class NoValidQuestionsException(val received: Int, val valid: Int) :
     IllegalStateException("Only $valid of $received generated questions were valid")
 
-/** What the AI studies from: the exams' syllabus, the lab titles and every exam and lab PDF (D-11). */
-data class CourseMaterial(val text: String, val syllabusChars: Int, val pdfPaths: List<String>) {
-    /** Too little to generate meaningful questions (fewer than 15 characters and no PDF). */
-    val isInsufficient: Boolean get() = syllabusChars < MIN_SYLLABUS_CHARS && pdfPaths.isEmpty()
+/** A PDF of the course is still being read and summarized: questions wait for it so they come from its content. */
+class PdfNotReadyException(val evaluationIds: List<String>) :
+    IllegalStateException("${evaluationIds.size} PDF(s) still being summarized")
+
+/**
+ * What the AI studies from (D-11): the exams' syllabus, the lab titles and the study summary of every exam and lab
+ * PDF. [pendingPdfs] are the evaluations whose local PDF has no up-to-date summary yet.
+ */
+data class CourseMaterial(
+    val text: String,
+    val syllabusChars: Int,
+    val studyDigest: String = "",
+    val pendingPdfs: List<String> = emptyList(),
+) {
+    /** Too little to generate meaningful questions (fewer than 15 characters and no PDF summary). */
+    val isInsufficient: Boolean get() = syllabusChars < MIN_SYLLABUS_CHARS && studyDigest.isBlank()
 
     companion object {
         const val MIN_SYLLABUS_CHARS = 15
     }
 }
 
-class CourseMaterialUseCase @Inject constructor(private val evaluations: EvaluationRepository) {
+class CourseMaterialUseCase @Inject constructor(
+    private val evaluations: EvaluationRepository,
+    private val digests: PdfDigestRepository,
+) {
     suspend operator fun invoke(courseId: String): CourseMaterial {
         val list = evaluations.observeByCourse(courseId).first()
+        val digestById = digests.observeByCourse(courseId).first().associateBy { it.evaluationId }
+        // A summary counts when it matches the PDF on this device, or when the PDF lives on another device.
+        val current = list.mapNotNull { evaluation ->
+            val digest = digestById[evaluation.id] ?: return@mapNotNull null
+            val path = evaluation.localPdfPath
+            if (path == null || digest.pdfKey == pdfKeyOf(path)) evaluation.id to digest else null
+        }.toMap()
+        // A failed summary does not block: the questions then come from the syllabus.
+        val pending = list.filter { it.localPdfPath != null && current[it.id].let { digest -> digest == null || digest.isPending } }
+        val ready = list.mapNotNull { evaluation -> current[evaluation.id]?.takeIf { it.isReady }?.let { evaluation to it } }
+
         val exams = list.filterIsInstance<Exam>()
         val labs = list.filterIsInstance<Lab>()
         val withSyllabus = exams.filter { it.syllabus.isNotBlank() }
-        val labsWithGuide = labs.filter { it.guidePdfPath != null }
+        val labsWithGuide = labs.filter { it.guidePdfPath != null || current[it.id]?.isReady == true }
         val lines = withSyllabus.map { "${it.title}: ${it.syllabus.trim()}" } +
             labsWithGuide.map { lab -> "Laboratorio ${lab.guideNumber.ifBlank { "" }} ${lab.title}".replace("  ", " ").trim() }
         return CourseMaterial(
             text = lines.joinToString("\n"),
             syllabusChars = withSyllabus.sumOf { it.syllabus.trim().length },
-            pdfPaths = exams.mapNotNull { it.syllabusPdfPath } + labsWithGuide.mapNotNull { it.guidePdfPath },
+            studyDigest = ready.joinToString("\n\n") { (evaluation, digest) -> "PDF de \"${evaluation.title}\":\n${digest.summary}" },
+            pendingPdfs = pending.map { it.id },
         )
     }
 }
@@ -85,8 +116,8 @@ class GenerateQuestionBatchesUseCase(
     suspend operator fun invoke(base: QuestionRequest, total: Int, existingStatements: List<String> = emptyList()): Result<List<GeneratedQuestion>> {
         if (total <= 0) return Result.success(emptyList())
         val sizes = batchSizes(total)
-        // Relevance is judged against the typed syllabus; with a PDF the questions may rightly use its own terms.
-        val keywords = if (base.pdfPaths.isEmpty()) QuestionQuality.keywords(base.syllabus) else emptySet()
+        // Relevance is judged against everything the model received: the syllabus and the PDF summaries.
+        val keywords = QuestionQuality.keywords(base.syllabus + "\n" + base.studyDigest)
         val avoid = existingStatements.takeLast(MAX_AVOID)
         val results = coroutineScope {
             sizes.mapIndexed { index, size ->
@@ -213,16 +244,25 @@ class QuestionBankUseCase @Inject constructor(
     }
 }
 
-/** Generates [count] new questions for a course from its material (or typed [topics]) and stores them. */
+/**
+ * Generates [count] new questions for a course from its material (or typed [topics]) and stores them. While a PDF
+ * of the course is still being summarized it fails with [PdfNotReadyException] (and makes sure the summary is on
+ * its way), so the questions come from the PDF content.
+ */
 class GenerateCourseQuestionsUseCase @Inject constructor(
     private val questions: QuestionRepository,
     private val courses: CourseRepository,
     private val material: CourseMaterialUseCase,
     private val batches: GenerateQuestionBatchesUseCase,
     private val clock: Clock,
+    private val pdfDigests: PdfDigestScheduler = PdfDigestScheduler.None,
 ) {
     suspend operator fun invoke(courseId: String, count: Int, topics: String? = null): Result<List<Question>> {
         val courseMaterial = material(courseId)
+        if (courseMaterial.pendingPdfs.isNotEmpty()) {
+            courseMaterial.pendingPdfs.forEach { pdfDigests.schedule(it) }
+            return Result.failure(PdfNotReadyException(courseMaterial.pendingPdfs))
+        }
         val typed = topics?.trim().orEmpty()
         if (typed.length < CourseMaterial.MIN_SYLLABUS_CHARS && courseMaterial.isInsufficient) {
             return Result.failure(MissingSyllabusException())
@@ -230,7 +270,7 @@ class GenerateCourseQuestionsUseCase @Inject constructor(
         val text = if (typed.length >= CourseMaterial.MIN_SYLLABUS_CHARS) typed else courseMaterial.text
         val courseName = courses.observeById(courseId).firstOrNull()?.name.orEmpty()
         val existing = questions.observeByCourse(courseId).first().map { q -> listOfNotNull(q.scenario, q.statement).joinToString(" ") }
-        val request = QuestionRequest(courseName, text, count, courseMaterial.pdfPaths)
+        val request = QuestionRequest(courseName, text, count, studyDigest = courseMaterial.studyDigest)
         return batches(request, count, existing).mapCatching { generated ->
             val now = clock.instant()
             generated.map {
@@ -345,7 +385,8 @@ enum class PrefetchOutcome { SUCCESS, RETRY, FAIL }
 /**
  * Logic of the prefetch worker: errors that more attempts can fix (network, timeouts, overload, quotas, too few
  * valid questions) are retried with backoff until they succeed; missing material, an invalid API key or a
- * signed-out student are final.
+ * signed-out student are final. While a PDF is being summarized a refill ends quietly (the digest worker
+ * refills the bank when the summary is ready) and a top-up retries, since a student is waiting for it.
  */
 class RunPrefetchUseCase @Inject constructor(
     private val refill: RefillQuestionBankUseCase,
@@ -360,6 +401,10 @@ class RunPrefetchUseCase @Inject constructor(
         }
         val error = result.exceptionOrNull() ?: return PrefetchOutcome.SUCCESS.also {
             logger.info("Prefetch done for course ${job.courseId}: +${result.getOrNull()} questions")
+        }
+        if (error is PdfNotReadyException) {
+            logger.info("Prefetch waits for ${error.evaluationIds.size} PDF summary(ies) of course ${job.courseId}")
+            return if (job.simulacrumId != null) PrefetchOutcome.RETRY else PrefetchOutcome.SUCCESS
         }
         val final = error is MissingSyllabusException ||
             (error is AiError.Configuration && error.invalidKey) ||

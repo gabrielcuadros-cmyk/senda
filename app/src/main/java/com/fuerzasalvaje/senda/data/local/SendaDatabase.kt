@@ -2,12 +2,14 @@ package com.fuerzasalvaje.senda.data.local
 
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.fuerzasalvaje.senda.data.local.dao.AIRecommendationDao
 import com.fuerzasalvaje.senda.data.local.dao.CourseDao
 import com.fuerzasalvaje.senda.data.local.dao.EvaluationDao
+import com.fuerzasalvaje.senda.data.local.dao.PdfDigestDao
 import com.fuerzasalvaje.senda.data.local.dao.PomodoroSessionDao
 import com.fuerzasalvaje.senda.data.local.dao.QuestionDao
 import com.fuerzasalvaje.senda.data.local.dao.SimulacrumDao
@@ -16,6 +18,7 @@ import com.fuerzasalvaje.senda.data.local.dao.StudyBlockDao
 import com.fuerzasalvaje.senda.data.local.entity.AIRecommendationEntity
 import com.fuerzasalvaje.senda.data.local.entity.CourseEntity
 import com.fuerzasalvaje.senda.data.local.entity.EvaluationEntity
+import com.fuerzasalvaje.senda.data.local.entity.PdfDigestEntity
 import com.fuerzasalvaje.senda.data.local.entity.PomodoroSessionEntity
 import com.fuerzasalvaje.senda.data.local.entity.QuestionEntity
 import com.fuerzasalvaje.senda.data.local.entity.SimulacrumEntity
@@ -33,9 +36,12 @@ import com.fuerzasalvaje.senda.data.local.entity.StudyBlockEntity
         PomodoroSessionEntity::class,
         StudyBlockEntity::class,
         StressCheckInEntity::class,
+        PdfDigestEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
+    // v3: study summaries of PDFs (a new table only).
+    autoMigrations = [AutoMigration(from = 2, to = 3)],
 )
 @TypeConverters(Converters::class)
 abstract class SendaDatabase : RoomDatabase() {
@@ -47,6 +53,7 @@ abstract class SendaDatabase : RoomDatabase() {
     abstract fun pomodoroSessionDao(): PomodoroSessionDao
     abstract fun studyBlockDao(): StudyBlockDao
     abstract fun stressCheckInDao(): StressCheckInDao
+    abstract fun pdfDigestDao(): PdfDigestDao
 
     companion object {
         const val NAME = "senda.db"

@@ -66,11 +66,4 @@ class QuestionQualityTest {
 
         assertEquals(batch, QuestionQuality.rebalance(batch, Random(1)))
     }
-
-    @Test
-    fun `batches are 5 questions at most`() {
-        assertEquals(listOf(5, 5, 2), com.fuerzasalvaje.senda.domain.usecase.simulacrum.GenerateQuestionBatchesUseCase.batchSizes(12))
-        assertEquals(listOf(3), com.fuerzasalvaje.senda.domain.usecase.simulacrum.GenerateQuestionBatchesUseCase.batchSizes(3))
-        assertTrue(com.fuerzasalvaje.senda.domain.usecase.simulacrum.GenerateQuestionBatchesUseCase.batchSizes(0).isEmpty())
-    }
 }

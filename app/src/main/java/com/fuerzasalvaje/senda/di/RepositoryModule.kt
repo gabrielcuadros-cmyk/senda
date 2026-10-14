@@ -1,5 +1,9 @@
 package com.fuerzasalvaje.senda.di
 
+import com.fuerzasalvaje.senda.data.local.PrefsAiUsageStore
+import com.fuerzasalvaje.senda.domain.repository.AiQuota
+import com.fuerzasalvaje.senda.domain.repository.AiUsageStore
+import com.fuerzasalvaje.senda.domain.usecase.ai.DailyAiQuota
 import com.fuerzasalvaje.senda.data.local.LocalDocumentStorage
 import com.fuerzasalvaje.senda.data.local.PdfBoxTextExtractor
 import com.fuerzasalvaje.senda.data.focus.PomodoroController
@@ -60,6 +64,8 @@ abstract class RepositoryModule {
     @Binds abstract fun bindSessionProvider(impl: FirebaseSessionProvider): SessionProvider
     @Binds abstract fun bindAuthRepository(impl: AuthRepositoryImpl): AuthRepository
     @Binds abstract fun bindDocumentStorage(impl: LocalDocumentStorage): DocumentStorage
+    @Binds abstract fun bindAiUsageStore(impl: PrefsAiUsageStore): AiUsageStore
+    @Binds abstract fun bindAiQuota(impl: DailyAiQuota): AiQuota
     @Binds abstract fun bindAvailabilityRepository(impl: FirestoreAvailabilityRepository): AvailabilityRepository
     @Binds abstract fun bindSettingsRepository(impl: FirestoreSettingsRepository): SettingsRepository
     @Binds abstract fun bindPomodoroTimer(impl: PomodoroController): PomodoroTimer

@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Clock
 import java.util.UUID
@@ -26,10 +27,11 @@ import javax.inject.Inject
 import kotlin.random.Random
 
 /**
- * HU-15: creates an attempt and starts its clock now, without waiting for Gemini when the bank has enough.
- * With at least [SendaRules.MIN_QUESTIONS_TO_START] available questions it starts with them and the rest are
- * added in the background as they arrive; with fewer, the missing ones are generated first. Every attempt
- * also refills the bank for the next one.
+ * HU-15: creates an attempt from the bank and starts its clock now, without calling Gemini. Unused questions come
+ * first; when they run out the asked ones are reused, failed ones first, in a new order and with their options
+ * mixed. Only an empty bank (fewer than [SendaRules.MIN_QUESTIONS_TO_START] questions) is generated while the
+ * student waits. The bank is refilled in the background only when fewer than [SendaRules.LOW_BANK_UNUSED] unused
+ * questions are left.
  */
 class StartSimulacrumUseCase(
     private val bank: QuestionBankUseCase,
@@ -54,24 +56,39 @@ class StartSimulacrumUseCase(
         minutes: Int = SendaRules.DEFAULT_SIMULACRUM_MINUTES,
         topics: String? = null,
     ): Result<Simulacrum> = safely {
-        val available = bank.available(courseId)
-        val pool = if (available.size >= SendaRules.MIN_QUESTIONS_TO_START) available else prepare(courseId, questionCount, topics).getOrThrow()
-        val chosen = pool.shuffled(random).take(questionCount)
+        var picked = bank.pick(courseId, questionCount, random)
+        if (picked.size < SendaRules.MIN_QUESTIONS_TO_START) {
+            prepare(courseId, topics).getOrThrow()
+            picked = bank.pick(courseId, questionCount, random)
+            if (picked.size < SendaRules.MIN_QUESTIONS_TO_START) {
+                throw NoValidQuestionsException(SendaRules.QUESTION_BANK_TARGET, picked.size)
+            }
+        }
+        val chosen = picked.shuffled(random)
         val simulacrum = Simulacrum(
             id = UUID.randomUUID().toString(),
             courseId = courseId,
-            questionIds = chosen.map { it.id },
+            questionIds = chosen.map { it.question.id },
             timeLimitMinutes = minutes,
             startedAt = clock.instant(),
+            optionOrders = chosen.filter { it.reused }.associate { it.question.id to mixedOrder(it.question.options.size) },
         )
         simulacra.save(simulacrum).getOrThrow()
-        if (chosen.size < questionCount) prefetcher.topUp(courseId, simulacrum.id, questionCount, topics)
-        prefetcher.refill(courseId, topics = topics)
+        if (bank.unused(courseId).size < SendaRules.LOW_BANK_UNUSED) prefetcher.refill(courseId, topics = topics)
         simulacrum
+    }
+
+    /** A random order of the options that differs from the stored one. */
+    private fun mixedOrder(size: Int): List<Int> {
+        val identity = (0 until size).toList()
+        if (size < 2) return identity
+        var order = identity.shuffled(random)
+        while (order == identity) order = identity.shuffled(random)
+        return order
     }
 }
 
-/** An attempt with its questions in order. */
+/** An attempt with its questions in order, each with its options as this attempt shows them. */
 data class SimulacrumSession(val simulacrum: Simulacrum, val questions: List<Question>)
 
 class ObserveSimulacrumUseCase @Inject constructor(
@@ -82,7 +99,7 @@ class ObserveSimulacrumUseCase @Inject constructor(
         combine(simulacra.observeById(id), questions.observeAll()) { simulacrum, all ->
             simulacrum?.let {
                 val byId = all.associateBy { q -> q.id }
-                SimulacrumSession(it, it.questionIds.mapNotNull(byId::get))
+                SimulacrumSession(it, it.questionIds.mapNotNull { id -> byId[id]?.withOptionOrder(it.optionOrders[id]) })
             }
         }
 }
@@ -129,8 +146,9 @@ class ObserveReadinessUseCase @Inject constructor(private val simulacra: Simulac
 }
 
 /**
- * HU-17: AI explanation of a wrong or missing answer. Cached per question and answer as an
- * AIRecommendation with a deterministic id, so the same mistake never calls Gemini twice.
+ * HU-17: AI explanation of a wrong or missing answer. Cached per question and chosen answer as an AIRecommendation
+ * with a deterministic id, so the same mistake never calls Gemini twice: the key uses the answer text (options may
+ * be shown in another order when a question is reused) and simultaneous requests for it wait for the first one.
  */
 class ExplainMistakeUseCase @Inject constructor(
     private val gemini: GeminiService,
@@ -139,7 +157,11 @@ class ExplainMistakeUseCase @Inject constructor(
     private val clock: Clock,
 ) {
     suspend operator fun invoke(question: Question, selectedOptionIndex: Int?): Result<String> {
-        val cacheId = cacheId(question.id, selectedOptionIndex)
+        val cacheId = cacheId(question.id, selectedOptionIndex?.let { question.options.getOrNull(it) })
+        return locks.computeIfAbsent(cacheId) { Mutex() }.withLock { explain(question, selectedOptionIndex, cacheId) }
+    }
+
+    private suspend fun explain(question: Question, selectedOptionIndex: Int?, cacheId: String): Result<String> {
         recommendations.observeById(cacheId).firstOrNull()?.let { return Result.success(it.content) }
 
         val courseName = courses.observeById(question.courseId).firstOrNull()?.name.orEmpty()
@@ -165,6 +187,10 @@ class ExplainMistakeUseCase @Inject constructor(
     }
 
     companion object {
-        fun cacheId(questionId: String, selectedOptionIndex: Int?) = "explain-$questionId-${selectedOptionIndex ?: "none"}"
+        private val locks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+
+        /** Same question and same chosen answer text: same id, whatever order the options were shown in. */
+        fun cacheId(questionId: String, selectedAnswer: String?) =
+            "explain-$questionId-${selectedAnswer?.trim()?.let { Integer.toHexString(it.hashCode()) } ?: "none"}"
     }
 }

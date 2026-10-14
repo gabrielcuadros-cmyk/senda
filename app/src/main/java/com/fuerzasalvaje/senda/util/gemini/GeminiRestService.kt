@@ -2,6 +2,7 @@ package com.fuerzasalvaje.senda.util.gemini
 
 import com.fuerzasalvaje.senda.domain.model.AiError
 import com.fuerzasalvaje.senda.domain.repository.AiLogger
+import com.fuerzasalvaje.senda.domain.repository.AiQuota
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -18,6 +19,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.io.InterruptedIOException
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -30,7 +32,8 @@ class GeminiRestService @Inject constructor(
     private val config: GeminiConfig,
     prompts: GeminiPrompts,
     logger: AiLogger,
-) : BaseGeminiService(prompts, logger, config) {
+    quota: AiQuota,
+) : BaseGeminiService(prompts, logger, config, quota) {
 
     override suspend fun send(prompt: GeminiPrompt, model: String): String {
         if (!config.hasApiKey) throw AiError.Configuration("GEMINI_API_KEY is not configured in local.properties", invalidKey = true)
@@ -47,10 +50,17 @@ class GeminiRestService @Inject constructor(
             .post(json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
             .build()
 
+        // The shared client stops at 25 s; the whole question bank in one call gets its own, longer limits.
+        val callClient = prompt.timeoutMillis?.let { limit ->
+            client.newBuilder()
+                .callTimeout(limit, TimeUnit.MILLISECONDS)
+                .readTimeout(limit, TimeUnit.MILLISECONDS)
+                .build()
+        } ?: client
         val started = System.currentTimeMillis()
         val (code, responseText) = withContext(Dispatchers.IO) {
             try {
-                client.newCall(request).execute().use { it.code to it.body.string() }
+                callClient.newCall(request).execute().use { it.code to it.body.string() }
             } catch (e: InterruptedIOException) {
                 logger.warn("Gemini timeout after ${System.currentTimeMillis() - started} ms (model=$model)")
                 throw AiError.Timeout(e)
@@ -93,7 +103,6 @@ class GeminiRestService @Inject constructor(
             responseMimeType = if (prompt.expectsJson) "application/json" else null,
             responseSchema = when (prompt.schema) {
                 ResponseSchema.QUESTIONS -> QUESTION_SCHEMA
-                ResponseSchema.REVIEW -> REVIEW_SCHEMA
                 null -> null
             },
             thinkingConfig = thinking,
@@ -159,9 +168,8 @@ class GeminiRestService @Inject constructor(
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         /** One question: {statement, scenario?, options[4], correctOptionIndex, explanation}. */
-        private fun questionObject(nullable: Boolean = false): JsonObject = buildJsonObject {
+        private fun questionObject(): JsonObject = buildJsonObject {
             put("type", "OBJECT")
-            if (nullable) put("nullable", true)
             putJsonObject("properties") {
                 putJsonObject("statement") { put("type", "STRING") }
                 putJsonObject("scenario") { put("type", "STRING"); put("nullable", true) }
@@ -194,29 +202,5 @@ class GeminiRestService @Inject constructor(
             putJsonArray("required") { add("questions") }
         }
 
-        /** {"reviews": [{index, verdict: ok|corregir|descartar, reason, question?}]} */
-        val REVIEW_SCHEMA: JsonObject = buildJsonObject {
-            put("type", "OBJECT")
-            putJsonObject("properties") {
-                putJsonObject("reviews") {
-                    put("type", "ARRAY")
-                    putJsonObject("items") {
-                        put("type", "OBJECT")
-                        putJsonObject("properties") {
-                            putJsonObject("index") { put("type", "INTEGER") }
-                            putJsonObject("verdict") {
-                                put("type", "STRING")
-                                putJsonArray("enum") { add("ok"); add("corregir"); add("descartar") }
-                            }
-                            putJsonObject("reason") { put("type", "STRING") }
-                            put("question", questionObject(nullable = true))
-                        }
-                        putJsonArray("required") { add("index"); add("verdict") }
-                        putJsonArray("propertyOrdering") { add("index"); add("verdict"); add("reason"); add("question") }
-                    }
-                }
-            }
-            putJsonArray("required") { add("reviews") }
-        }
     }
 }

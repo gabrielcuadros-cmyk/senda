@@ -87,6 +87,8 @@ data class SimulacrumEntity(
     val timeLimitMinutes: Int,
     val startedAt: Long,
     val finishedAt: Long?,
+    /** "questionId|2,0,3,1" per reused question (schema v5). */
+    @ColumnInfo(defaultValue = "[]") val optionOrders: List<String> = emptyList(),
 )
 
 @Entity(tableName = "ai_recommendations", indices = [Index("ownerUid")])

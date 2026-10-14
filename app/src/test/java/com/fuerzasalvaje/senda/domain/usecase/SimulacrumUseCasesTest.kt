@@ -1,16 +1,24 @@
 package com.fuerzasalvaje.senda.domain.usecase
 
+import com.fuerzasalvaje.senda.domain.engine.PdfMarkdown
 import com.fuerzasalvaje.senda.domain.model.AiError
+import com.fuerzasalvaje.senda.domain.model.Exam
+import com.fuerzasalvaje.senda.domain.model.Lab
+import com.fuerzasalvaje.senda.domain.model.PdfText
 import com.fuerzasalvaje.senda.domain.model.QuestionReport
-import com.fuerzasalvaje.senda.domain.model.QuestionVerdict
 import com.fuerzasalvaje.senda.domain.model.Simulacrum
 import com.fuerzasalvaje.senda.domain.model.SimulacrumAnswer
+import com.fuerzasalvaje.senda.domain.repository.AiQuota
+import com.fuerzasalvaje.senda.domain.usecase.evaluation.SaveEvaluationUseCase
+import com.fuerzasalvaje.senda.domain.usecase.pdf.ExtractPdfMarkdownUseCase
+import com.fuerzasalvaje.senda.domain.usecase.simulacrum.AnswerQuestionUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.CourseMaterialUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.ExplainMistakeUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.GenerateCourseQuestionsUseCase
-import com.fuerzasalvaje.senda.domain.usecase.simulacrum.GenerateQuestionBatchesUseCase
+import com.fuerzasalvaje.senda.domain.usecase.simulacrum.GenerateQuestionSetUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.MissingSyllabusException
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.NoValidQuestionsException
+import com.fuerzasalvaje.senda.domain.usecase.simulacrum.ObserveSimulacrumUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.PrefetchJob
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.PrefetchOutcome
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.PrepareQuestionsUseCase
@@ -19,13 +27,12 @@ import com.fuerzasalvaje.senda.domain.usecase.simulacrum.RefillQuestionBankUseCa
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.ReportQuestionUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.RunPrefetchUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.StartSimulacrumUseCase
-import com.fuerzasalvaje.senda.domain.usecase.simulacrum.TopUpSimulacrumUseCase
-import com.fuerzasalvaje.senda.domain.usecase.evaluation.SaveEvaluationUseCase
-import com.fuerzasalvaje.senda.domain.model.Lab
 import com.fuerzasalvaje.senda.testing.FakeAiLogger
+import com.fuerzasalvaje.senda.testing.FakeAiUsageStore
 import com.fuerzasalvaje.senda.testing.FakeCourseRepository
 import com.fuerzasalvaje.senda.testing.FakeEvaluationRepository
 import com.fuerzasalvaje.senda.testing.FakeGeminiService
+import com.fuerzasalvaje.senda.testing.FakePdfTextExtractor
 import com.fuerzasalvaje.senda.testing.FakeQuestionPrefetcher
 import com.fuerzasalvaje.senda.testing.FakeQuestionRepository
 import com.fuerzasalvaje.senda.testing.FakeRecommendationRepository
@@ -36,19 +43,18 @@ import com.fuerzasalvaje.senda.testing.exam
 import com.fuerzasalvaje.senda.testing.generated
 import com.fuerzasalvaje.senda.testing.question
 import com.fuerzasalvaje.senda.testing.testClock
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
 import java.time.Duration
 import kotlin.random.Random
-import com.fuerzasalvaje.senda.domain.engine.PdfMarkdown
-import com.fuerzasalvaje.senda.domain.model.Exam
-import com.fuerzasalvaje.senda.domain.model.PdfText
-import com.fuerzasalvaje.senda.domain.usecase.pdf.ExtractPdfMarkdownUseCase
-import com.fuerzasalvaje.senda.testing.FakePdfTextExtractor
 
 class SimulacrumUseCasesTest {
 
@@ -61,69 +67,60 @@ class SimulacrumUseCasesTest {
     private val prefetcher = FakeQuestionPrefetcher()
     private val logger = FakeAiLogger()
     private val extractor = FakePdfTextExtractor()
+    private val usage = FakeAiUsageStore()
 
-    private val batches = GenerateQuestionBatchesUseCase(gemini, logger, Random(3))
+    private val material = CourseMaterialUseCase(evaluations, ExtractPdfMarkdownUseCase(extractor, logger, testClock))
     private val bank = QuestionBankUseCase(questions, simulacra)
     private val generate = GenerateCourseQuestionsUseCase(
-        questions, courses, CourseMaterialUseCase(evaluations, ExtractPdfMarkdownUseCase(extractor, logger, testClock)),
-        batches, testClock, logger,
+        questions, courses, material, GenerateQuestionSetUseCase(gemini, logger, Random(3)), usage, testClock, logger,
     )
-    private val prepare = PrepareQuestionsUseCase(bank, generate)
+    private val prepare = PrepareQuestionsUseCase(generate)
+    private val refill = RefillQuestionBankUseCase(bank, material, generate, usage, logger)
     private val start = StartSimulacrumUseCase(bank, prepare, simulacra, prefetcher, testClock, Random(7))
 
-    /** Each batch answers with its own distinct questions about the syllabus. */
-    private fun perBatch(topic: String = "cinemática") {
-        gemini.questionsFor = { request -> Result.success((1..request.count).map { generated(request.batchIndex * 10 + it, topic) }) }
+    /** Gemini answers with as many distinct questions about [topic] as requested. */
+    private fun answers(topic: String = "cinemática", offset: Int = 0) {
+        gemini.questionsFor = { request -> Result.success((1..request.count).map { generated(offset + it, topic) }) }
     }
 
     private fun syllabus(text: String = "Cinemática y dinámica de partículas") =
         evaluations.seed(exam("Parcial 1", 30).copy(syllabus = text))
 
-    // Generation in parallel batches
+    private fun finished(id: String, questionIds: List<String>, right: Set<String>, minutesAgo: Long = 30) = Simulacrum(
+        id = id, courseId = "c1", questionIds = questionIds,
+        startedAt = TEST_NOW - Duration.ofMinutes(minutesAgo + 20), finishedAt = TEST_NOW - Duration.ofMinutes(minutesAgo),
+        answers = questionIds.map { SimulacrumAnswer(it, if (it in right) 1 else 0, it in right) },
+    )
+
+    // 1. One call per bank
 
     @Test
-    fun `questions are asked in parallel batches of 5`() = runTest {
+    fun `the whole bank of 15 questions comes from ONE Gemini call, with no review call`() = runTest {
         syllabus()
-        perBatch()
-
-        val created = generate("c1", 12).getOrThrow()
-
-        assertEquals(listOf(5, 5, 2), gemini.requests.sortedBy { it.batchIndex }.map { it.count })
-        assertTrue(gemini.requests.all { it.batchCount == 3 })
-        assertEquals(12, created.size)
-        assertEquals(12, questions.items.value.size)
-        assertEquals(3, gemini.reviewCalls)
-    }
-
-    @Test
-    fun `a failed batch is skipped and the others are used`() = runTest {
-        syllabus()
-        gemini.questionsFor = { request ->
-            if (request.batchIndex == 1) Result.failure(AiError.Timeout())
-            else Result.success((1..request.count).map { generated(request.batchIndex * 10 + it) })
-        }
+        answers()
 
         val created = generate("c1", 15).getOrThrow()
 
-        assertEquals(10, created.size)
-        assertTrue(logger.lines.any { it.startsWith("W Batch 2/3 failed: Timeout") })
+        assertEquals(1, gemini.generateCalls)
+        assertEquals(15, gemini.requests.single().count)
+        assertEquals(15, created.size)
+        assertEquals(15, questions.items.value.size)
+        assertTrue(logger.lines.any { it.contains("in 1 call") })
     }
 
     @Test
-    fun `when every batch fails the error is reported, the invalid key first`() = runTest {
+    fun `a failed call reports its error and stores nothing`() = runTest {
         syllabus()
-        gemini.questionsFor = { request ->
-            Result.failure(if (request.batchIndex == 1) AiError.Configuration("API key not valid") else AiError.Timeout())
-        }
+        gemini.questionsFor = { Result.failure(AiError.Configuration("API key not valid")) }
 
-        val error = generate("c1", 10).exceptionOrNull()
+        val error = generate("c1", 15).exceptionOrNull()
 
         assertTrue(error is AiError.Configuration && error.invalidKey)
         assertTrue(questions.items.value.isEmpty())
     }
 
     @Test
-    fun `duplicates, unrelated questions and catch-all options are discarded`() = runTest {
+    fun `duplicates, unrelated questions and catch-all options are still discarded in code`() = runTest {
         syllabus()
         gemini.questionsFor = {
             Result.success(
@@ -155,37 +152,6 @@ class SimulacrumUseCasesTest {
     }
 
     @Test
-    fun `the review keeps approved and corrected questions only`() = runTest {
-        syllabus()
-        perBatch()
-        gemini.reviewFor = { _, batch ->
-            Result.success(
-                listOf(
-                    QuestionVerdict(0, approved = true),
-                    QuestionVerdict(1, approved = false, corrected = batch[1].copy(statement = "Pregunta corregida de cinemática")),
-                    QuestionVerdict(2, approved = false), // descartar
-                    // 3 and 4 missing: not approved
-                )
-            )
-        }
-
-        val created = generate("c1", 5).getOrThrow()
-
-        assertEquals(2, created.size)
-        assertTrue(created.any { it.statement == "Pregunta corregida de cinemática" })
-    }
-
-    @Test
-    fun `if the review cannot be done the checked questions are kept`() = runTest {
-        syllabus()
-        perBatch()
-        gemini.reviewFor = { _, _ -> Result.failure(AiError.Timeout()) }
-
-        assertEquals(5, generate("c1", 5).getOrThrow().size)
-        assertTrue(logger.lines.any { it.contains("Review unavailable") })
-    }
-
-    @Test
     fun `answers all in the same position are spread over A, B, C and D`() = runTest {
         syllabus()
         gemini.questionsFor = { Result.success((1..5).map { generated(it).copy(correctOptionIndex = 0) }) }
@@ -194,18 +160,17 @@ class SimulacrumUseCasesTest {
 
         val top = created.groupingBy { it.correctOptionIndex }.eachCount().values.max()
         assertTrue("most repeated position: $top of 5", top * 2 <= 5)
-        // The text of the right answer travels with it.
         created.forEach { q -> assertTrue(q.options[q.correctOptionIndex].startsWith("A")) }
     }
 
-    // Material
+    // Material (text only)
 
     @Test
     fun `without syllabus the student must type the topics`() = runTest {
-        assertTrue(prepare("c1", 10).exceptionOrNull() is MissingSyllabusException)
+        assertTrue(prepare("c1").exceptionOrNull() is MissingSyllabusException)
 
-        perBatch(topic = "leyes de newton")
-        prepare("c1", 10, topics = "Leyes de Newton y fuerzas").getOrThrow()
+        answers(topic = "leyes de newton")
+        prepare("c1", topics = "Leyes de Newton y fuerzas").getOrThrow()
         assertEquals("Leyes de Newton y fuerzas", gemini.lastSyllabus)
     }
 
@@ -220,9 +185,9 @@ class SimulacrumUseCasesTest {
                 dueAt = TEST_NOW + Duration.ofDays(2), guidePdfPath = "/files/pdfs/guia.pdf",
                 guidePdfMarkdown = "## Página 2\n- Periodo T = 2 s con L = 1 m"),
         )
-        perBatch(topic = "péndulo")
+        answers(topic = "péndulo")
 
-        prepare("c1", 5).getOrThrow()
+        prepare("c1").getOrThrow()
 
         val request = gemini.lastRequest!!
         assertEquals("Parcial 1: Unidad 2\nLaboratorio 3 Péndulo", request.syllabus)
@@ -232,22 +197,12 @@ class SimulacrumUseCasesTest {
     }
 
     @Test
-    fun `Markdown synced from another device is used without the local PDF`() = runTest {
-        evaluations.seed(exam("Parcial 1", 30).copy(syllabusPdfMarkdown = "## Diapositiva 3\n- Ley de Ohm: V = I x R"))
-        perBatch(topic = "ley de ohm")
-
-        prepare("c1", 5).getOrThrow()
-
-        assertTrue(gemini.lastRequest!!.pdfMarkdown.contains("Ley de Ohm"))
-    }
-
-    @Test
     fun `a PDF attached before the Markdown existed is read once on the device and kept`() = runTest {
         evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Ley de Ohm", syllabusPdfPath = "/files/pdfs/temario.pdf"))
-        perBatch(topic = "resistencia")
+        answers(topic = "resistencia")
 
-        prepare("c1", 5).getOrThrow()
-        RefillQuestionBankUseCase(bank, generate)("c1", fresh = true).getOrThrow()
+        prepare("c1").getOrThrow()
+        generate("c1", 15).getOrThrow()
 
         assertEquals(listOf("/files/pdfs/temario.pdf"), extractor.calls)
         val stored = evaluations.items.value.values.single() as Exam
@@ -259,40 +214,24 @@ class SimulacrumUseCasesTest {
     fun `a PDF without readable text is never sent and questions come from the syllabus`() = runTest {
         extractor.result = Result.success(PdfText(listOf("12", "", "Tecsup")))
         evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Cinemática y dinámica", syllabusPdfPath = "/files/pdfs/escaneado.pdf"))
-        perBatch()
+        answers()
 
-        prepare("c1", 5).getOrThrow()
+        prepare("c1").getOrThrow()
 
         assertEquals("", gemini.lastRequest!!.pdfMarkdown)
         assertEquals("Parcial 1: Cinemática y dinámica", gemini.lastRequest!!.syllabus)
-        assertTrue(logger.lines.any { it.contains("PDF without readable text") })
     }
 
     @Test
     fun `several PDFs share the 12000 character budget`() = runTest {
         val long = (1..120).joinToString("\n\n") { "## Diapositiva $it\n- Tema $it: velocidad v = $it m/s en el tramo $it" }
-        evaluations.seed(
-            exam("Parcial 1", 30).copy(syllabusPdfMarkdown = long),
-            exam("Parcial 2", 30).copy(syllabusPdfMarkdown = long),
-        )
-        perBatch(topic = "velocidad")
+        evaluations.seed(exam("Parcial 1", 30).copy(syllabusPdfMarkdown = long), exam("Parcial 2", 30).copy(syllabusPdfMarkdown = long))
+        answers(topic = "velocidad")
 
-        prepare("c1", 5).getOrThrow()
+        prepare("c1").getOrThrow()
 
         val headers = "# PDF de \"Parcial 1\"\n".length * 2 + 2
         assertTrue(gemini.lastRequest!!.pdfMarkdown.length <= PdfMarkdown.MAX_CHARS + headers)
-    }
-
-    @Test
-    fun `the log has sizes and times of the material, never its content`() = runTest {
-        evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Unidad 2", syllabusPdfMarkdown = "## Diapositiva 3\n- Ley de Ohm: V = I x R"))
-        perBatch(topic = "ley de ohm")
-
-        prepare("c1", 5).getOrThrow()
-
-        val line = logger.lines.single { it.contains("Question material") }
-        assertTrue(line.contains("pdfChars=") && line.contains("sentChars=") && line.contains(" ms"))
-        assertTrue(logger.lines.none { it.contains("Ley de Ohm") || it.contains("V = I x R") })
     }
 
     @Test
@@ -300,136 +239,182 @@ class SimulacrumUseCasesTest {
         syllabus()
         gemini.questionsFor = { Result.success(listOf(generated(1), generated(2))) }
 
-        val error = prepare("c1", 5).exceptionOrNull() as NoValidQuestionsException
+        val error = prepare("c1").exceptionOrNull() as NoValidQuestionsException
         assertEquals(2, error.valid)
     }
 
-    // Starting an attempt
+    // 2. Prefetch only when needed
 
     @Test
-    fun `a full bank starts at once without calling the AI and refills for the next attempt`() = runTest {
+    fun `refill calls Gemini only when the material changed or fewer than 5 unused questions are left`() = runTest {
+        syllabus()
+        answers()
+
+        assertEquals(15, refill("c1").getOrThrow())           // new material
+        assertEquals(0, refill("c1").getOrThrow())            // same material, 15 unused
+        assertEquals(1, gemini.generateCalls)
+
+        // Dates, weights or titles do not change the material.
+        val exam = evaluations.items.value.values.single() as Exam
+        evaluations.save(exam.copy(title = "Parcial 1 (aula 302)", weightPercent = 35.0, startAt = exam.startAt + Duration.ofDays(1)))
+        assertEquals(0, refill("c1").getOrThrow())
+        assertEquals(1, gemini.generateCalls)
+
+        // 11 of the 15 asked: only 4 unused are left.
+        val ids = questions.items.value.keys.take(11)
+        simulacra.seed(finished("s1", ids, right = ids.toSet()))
+        answers(offset = 100)
+        assertEquals(15, refill("c1").getOrThrow())
+        assertEquals(2, gemini.generateCalls)
+
+        // A new syllabus is new material, even with a full bank.
+        evaluations.save(exam.copy(syllabus = "Cinemática, dinámica y energía mecánica"))
+        answers(offset = 200)
+        refill("c1").getOrThrow()
+        assertEquals(3, gemini.generateCalls)
+        assertTrue(logger.lines.any { it.contains("Refill skipped for course c1: 15 unused questions and the same material") })
+    }
+
+    @Test
+    fun `saving an evaluation queues the refill only when the syllabus or the PDF content changed`() = runTest {
+        val save = SaveEvaluationUseCase(evaluations, prefetcher)
+        val withSyllabus = exam("e1", 30).copy(syllabus = "Cinemática")
+
+        save(exam("e0", 30)).getOrThrow()                                         // no material
+        save(withSyllabus).getOrThrow()                                            // new syllabus
+        save(withSyllabus.copy(title = "Parcial 1", weightPercent = 40.0)).getOrThrow() // title and weight
+        save(withSyllabus.copy(startAt = withSyllabus.startAt + Duration.ofDays(2))).getOrThrow() // new date
+        save(withSyllabus.copy(status = com.fuerzasalvaje.senda.domain.model.EvaluationStatus.COMPLETED)).getOrThrow()
+        save(withSyllabus.copy(syllabusPdfMarkdown = "## Diapositiva 1\n- v = d / t")).getOrThrow() // new PDF content
+
+        assertEquals(listOf("c1", "c1"), prefetcher.refills)
+    }
+
+    @Test
+    fun `background prefetch stops at the daily limit and while the AI rests, without retries`() = runTest {
+        syllabus()
+        answers()
+        var allowed = false
+        var resting = false
+        val quota = object : AiQuota by AiQuota.None {
+            override suspend fun allowsBackground() = allowed && !resting
+            override suspend fun isResting() = resting
+        }
+        val run = RunPrefetchUseCase(refill, quota, logger)
+
+        assertEquals(PrefetchOutcome.SUCCESS, run(PrefetchJob("c1")))
+        assertEquals(0, gemini.generateCalls)
+        assertTrue(logger.lines.any { it.contains("Prefetch skipped for course c1") })
+
+        allowed = true
+        gemini.questionsFor = { Result.failure(AiError.Resting()) }
+        assertEquals(PrefetchOutcome.SUCCESS, run(PrefetchJob("c1"))) // no retry: the bank keeps serving
+        gemini.questionsFor = { Result.failure(AiError.Server(503, "busy")) }
+        assertEquals(PrefetchOutcome.RETRY, run(PrefetchJob("c1")))
+        gemini.questionsFor = { Result.failure(AiError.Configuration("API key not valid")) }
+        assertEquals(PrefetchOutcome.FAIL, run(PrefetchJob("c1")))
+        assertEquals(PrefetchOutcome.FAIL, run(PrefetchJob("other-course")))
+    }
+
+    // 3. Attempts come from the bank
+
+    @Test
+    fun `a full bank starts at once without calling the AI and without refilling while 5 or more are unused`() = runTest {
         questions.seed(*(1..15).map { question("q$it") }.toTypedArray())
 
-        val attempt = start("c1", questionCount = 5, minutes = 10).getOrThrow()
+        val attempt = start("c1", questionCount = 10, minutes = 10).getOrThrow()
 
-        assertEquals(5, attempt.questionIds.distinct().size)
+        assertEquals(10, attempt.questionIds.distinct().size)
         assertEquals(10, attempt.timeLimitMinutes)
-        assertEquals(TEST_NOW, attempt.startedAt)
+        assertTrue(attempt.optionOrders.isEmpty()) // new questions keep their order
         assertEquals(0, gemini.generateCalls)
-        assertTrue(prefetcher.topUps.isEmpty())
-        assertEquals(listOf("c1" to false), prefetcher.refills)
+        assertTrue(prefetcher.refills.isEmpty()) // 5 unused left
+
+        start("c1", questionCount = 5).getOrThrow()
+        assertEquals(listOf("c1"), prefetcher.refills) // 0 unused left
+        assertEquals(0, gemini.generateCalls)
     }
 
     @Test
-    fun `with 3 questions in the bank the attempt starts with them and asks for the rest`() = runTest {
-        questions.seed(question("q1"), question("q2"), question("q3"))
+    fun `when every question was used they are reused, failed ones first, in new order and with mixed options`() = runTest {
+        questions.seed(*(1..6).map { question("q$it") }.toTypedArray())
+        simulacra.seed(finished("s1", listOf("q1", "q2", "q3", "q4", "q5", "q6"), right = setOf("q4", "q5", "q6")))
 
-        val attempt = start("c1", questionCount = 10).getOrThrow()
+        val attempt = start("c1", questionCount = 3).getOrThrow()
 
         assertEquals(setOf("q1", "q2", "q3"), attempt.questionIds.toSet())
+        assertEquals(setOf("q1", "q2", "q3"), attempt.optionOrders.keys)
+        attempt.optionOrders.values.forEach { assertNotEquals(listOf(0, 1, 2, 3), it) }
         assertEquals(0, gemini.generateCalls)
-        assertEquals(listOf(Triple("c1", attempt.id, 10)), prefetcher.topUps)
+
+        // The attempt shows the mixed options; the right answer is still the same text.
+        val shown = ObserveSimulacrumUseCase(simulacra, questions)(attempt.id).first()!!.questions
+        shown.forEach { q ->
+            val stored = questions.items.value.getValue(q.id)
+            assertEquals(stored.options[stored.correctOptionIndex], q.options[q.correctOptionIndex])
+            assertNotEquals(stored.options, q.options)
+        }
+        // And it is graded on the order shown.
+        val first = shown.first()
+        val answered = AnswerQuestionUseCase(simulacra).apply(attempt, first, first.correctOptionIndex)
+        assertTrue(answered.answers.single { it.questionId == first.id }.correct)
     }
 
     @Test
-    fun `with fewer than 3 the missing questions are generated before starting`() = runTest {
+    fun `with fewer than 3 questions the whole bank is generated in one call before starting`() = runTest {
         syllabus()
-        perBatch()
+        answers()
         questions.seed(question("q1"))
 
         val attempt = start("c1", questionCount = 5).getOrThrow()
 
         assertEquals(5, attempt.questionIds.size)
-        assertTrue(gemini.generateCalls > 0)
+        assertEquals(1, gemini.generateCalls)
+        assertEquals(15, gemini.requests.single().count)
     }
 
     @Test
-    fun `questions answered right in the last 2 attempts are not repeated`() = runTest {
+    fun `reporting a question keeps the stored options and refills only when the bank is low`() = runTest {
         questions.seed(*(1..6).map { question("q$it") }.toTypedArray())
-        fun finished(id: String, minutesAgo: Long, right: List<String>) = Simulacrum(
-            id = id, courseId = "c1", questionIds = right, startedAt = TEST_NOW - Duration.ofMinutes(minutesAgo + 20),
-            finishedAt = TEST_NOW - Duration.ofMinutes(minutesAgo), answers = right.map { SimulacrumAnswer(it, 1, true) },
-        )
-        simulacra.seed(finished("s1", 10, listOf("q1")), finished("s2", 20, listOf("q2")), finished("s3", 30, listOf("q3")))
+        val report = ReportQuestionUseCase(questions, bank, prefetcher, logger)
 
-        // q3 was right three attempts ago: it may come back.
-        assertEquals(setOf("q3", "q4", "q5", "q6"), bank.available("c1").map { it.id }.toSet())
+        // The attempt showed q1 with its options mixed.
+        report(question("q1").withOptionOrder(listOf(3, 2, 1, 0)), QuestionReport.CONFUSING).getOrThrow()
+
+        val stored = questions.items.value.getValue("q1")
+        assertEquals(QuestionReport.CONFUSING, stored.reportReason)
+        assertEquals(listOf("A", "B", "C", "D"), stored.options)
+        assertEquals(5, bank.unused("c1").size)
+        assertTrue(prefetcher.refills.isEmpty())
+
+        report(question("q2"), QuestionReport.WRONG).getOrThrow()
+        assertEquals(listOf("c1"), prefetcher.refills)
     }
 
-    @Test
-    fun `top up adds the missing questions to the running attempt`() = runTest {
-        syllabus()
-        perBatch()
-        questions.seed(question("q1"), question("q2"), question("q3"))
-        val attempt = start("c1", questionCount = 8).getOrThrow()
-
-        TopUpSimulacrumUseCase(simulacra, bank, generate)(attempt.id, 8).getOrThrow()
-
-        val stored = simulacra.items.value.getValue(attempt.id)
-        assertEquals(8, stored.questionIds.distinct().size)
-        assertEquals(attempt.questionIds, stored.questionIds.take(3))
-    }
-
-    // Background prefetch
+    // 4. Cached explanations
 
     @Test
-    fun `prefetch fills the bank up to 15 and retries or stops depending on the error`() = runTest {
-        syllabus()
-        perBatch()
-        val run = RunPrefetchUseCase(RefillQuestionBankUseCase(bank, generate), TopUpSimulacrumUseCase(simulacra, bank, generate), logger)
-
-        assertEquals(PrefetchOutcome.SUCCESS, run(PrefetchJob("c1")))
-        assertEquals(15, bank.available("c1").size)
-        assertEquals(PrefetchOutcome.SUCCESS, run(PrefetchJob("c1")))
-        assertEquals(15, questions.items.value.size) // already full: nothing generated
-
-        gemini.questionsFor = { Result.failure(AiError.Server(503, "busy")) }
-        assertEquals(PrefetchOutcome.RETRY, run(PrefetchJob("c1", fresh = true)))
-        gemini.questionsFor = { Result.failure(AiError.Configuration("API key not valid")) }
-        assertEquals(PrefetchOutcome.FAIL, run(PrefetchJob("c1", fresh = true)))
-        assertEquals(PrefetchOutcome.FAIL, run(PrefetchJob("other-course")))
-    }
-
-    @Test
-    fun `saving an exam or lab with new material starts the prefetch`() = runTest {
-        val save = SaveEvaluationUseCase(evaluations, prefetcher)
-        val withSyllabus = exam("e1", 30).copy(syllabus = "Cinemática")
-
-        save(exam("e0", 30)).getOrThrow()                    // no material
-        save(withSyllabus).getOrThrow()                       // new material
-        save(withSyllabus.copy(title = "Parcial 1")).getOrThrow() // same material
-        save(Lab(id = "l1", courseId = "c1", title = "Lab", difficulty = 2, createdAt = TEST_NOW, dueAt = TEST_NOW,
-            guidePdfPath = "/g.pdf", guidePdfMarkdown = "## Página 1\n- Péndulo simple")).getOrThrow()
-
-        assertEquals(listOf("c1" to true, "c1" to true), prefetcher.refills)
-    }
-
-    // Feedback
-
-    @Test
-    fun `a reported question leaves the bank and is replaced`() = runTest {
-        questions.seed(question("q1"), question("q2"))
-
-        ReportQuestionUseCase(questions, prefetcher, logger)(question("q1"), QuestionReport.CONFUSING).getOrThrow()
-
-        assertEquals(QuestionReport.CONFUSING, questions.items.value.getValue("q1").reportReason)
-        assertEquals(listOf("q2"), bank.available("c1").map { it.id })
-        assertEquals(listOf("c1" to false), prefetcher.refills)
-    }
-
-    // Explanations
-
-    @Test
-    fun `explanations are cached per question and answer`() = runTest {
+    fun `an explanation is asked once per question and answer, whatever order the options were shown in`() = runTest {
         val explain = ExplainMistakeUseCase(gemini, recommendations, courses, testClock)
         val q = question("q1")
 
-        assertEquals("La respuesta correcta es **B**.", explain(q, 2).getOrThrow())
+        assertEquals("La respuesta correcta es **B**.", explain(q, 2).getOrThrow()) // answered "C"
         explain(q, 2)
+        explain(q.withOptionOrder(listOf(2, 0, 1, 3)), 0) // "C" again, shown first in a later attempt
         assertEquals(1, gemini.explainCalls)
 
         explain(q, null) // a different answer is a different explanation
         assertEquals(2, gemini.explainCalls)
+    }
+
+    @Test
+    fun `simultaneous requests for the same explanation call Gemini once`() = runTest {
+        val explain = ExplainMistakeUseCase(gemini, recommendations, courses, testClock)
+        gemini.explainDelayMillis = 1_000
+
+        listOf(async { explain(question("q9"), 0) }, async { explain(question("q9"), 0) }).awaitAll()
+
+        assertEquals(1, gemini.explainCalls)
     }
 
     @Test

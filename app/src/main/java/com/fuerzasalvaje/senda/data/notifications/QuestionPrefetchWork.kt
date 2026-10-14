@@ -28,8 +28,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Generates questions with Gemini in the background (HU-15): refills a course bank, or adds the questions an
- * attempt is still missing. Needs network and retries with exponential backoff until it succeeds.
+ * Refills a course question bank with Gemini in the background (HU-15), only when it is needed (see
+ * RunPrefetchUseCase). Needs network and retries with exponential backoff.
  */
 @HiltWorker
 class PrefetchQuestionsWorker @AssistedInject constructor(
@@ -42,13 +42,7 @@ class PrefetchQuestionsWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         if (session.currentUid() == null) return Result.failure()
         val courseId = inputData.getString(COURSE_ID) ?: return Result.failure()
-        val job = PrefetchJob(
-            courseId = courseId,
-            fresh = inputData.getBoolean(FRESH, false),
-            simulacrumId = inputData.getString(SIMULACRUM_ID),
-            desired = inputData.getInt(DESIRED, 0),
-            topics = inputData.getString(TOPICS),
-        )
+        val job = PrefetchJob(courseId = courseId, topics = inputData.getString(TOPICS))
         return when (runPrefetch(job)) {
             PrefetchOutcome.SUCCESS -> Result.success()
             PrefetchOutcome.RETRY -> Result.retry()
@@ -58,35 +52,21 @@ class PrefetchQuestionsWorker @AssistedInject constructor(
 
     companion object {
         const val COURSE_ID = "courseId"
-        const val FRESH = "fresh"
-        const val SIMULACRUM_ID = "simulacrumId"
-        const val DESIRED = "desired"
         const val TOPICS = "topics"
     }
 }
 
 @Singleton
-class WorkManagerQuestionPrefetcher @Inject constructor(
-    @param:ApplicationContext private val context: Context,
-) : QuestionPrefetcher {
+class WorkManagerQuestionPrefetcher(private val workManagerOf: () -> WorkManager) : QuestionPrefetcher {
 
-    private val workManager: WorkManager get() = WorkManager.getInstance(context)
+    @Inject constructor(@ApplicationContext context: Context) : this({ WorkManager.getInstance(context) })
 
-    /** Appended after any job of the same course still running, so two refills never overlap. */
-    override fun refill(courseId: String, fresh: Boolean, topics: String?) {
-        val data = workDataOf(PrefetchQuestionsWorker.COURSE_ID to courseId, PrefetchQuestionsWorker.FRESH to fresh, PrefetchQuestionsWorker.TOPICS to topics?.take(MAX_TOPICS))
-        workManager.enqueueUniqueWork("prefetch-$courseId", ExistingWorkPolicy.APPEND_OR_REPLACE, request(courseId, data))
-    }
+    private val workManager: WorkManager get() = workManagerOf()
 
-    /** Separate from the refill chain: the student is waiting for these questions now. */
-    override fun topUp(courseId: String, simulacrumId: String, desired: Int, topics: String?) {
-        val data = workDataOf(
-            PrefetchQuestionsWorker.COURSE_ID to courseId,
-            PrefetchQuestionsWorker.SIMULACRUM_ID to simulacrumId,
-            PrefetchQuestionsWorker.DESIRED to desired,
-            PrefetchQuestionsWorker.TOPICS to topics?.take(MAX_TOPICS),
-        )
-        workManager.enqueueUniqueWork("topup-$simulacrumId", ExistingWorkPolicy.REPLACE, request(courseId, data))
+    /** One unique job per course with KEEP: while one is queued or running, new requests are dropped. */
+    override fun refill(courseId: String, topics: String?) {
+        val data = workDataOf(PrefetchQuestionsWorker.COURSE_ID to courseId, PrefetchQuestionsWorker.TOPICS to topics?.take(MAX_TOPICS))
+        workManager.enqueueUniqueWork(uniqueName(courseId), ExistingWorkPolicy.KEEP, request(courseId, data))
     }
 
     override fun observeStatus(): Flow<Map<String, PrefetchStatus>> =
@@ -119,11 +99,13 @@ class WorkManagerQuestionPrefetcher @Inject constructor(
             .addTag(ReminderScheduler.TAG_ALL)
             .build()
 
-    private companion object {
-        const val TAG = "question-prefetch"
-        const val COURSE_TAG = "course:"
-        const val BACKOFF_SECONDS = 30L
+    companion object {
+        fun uniqueName(courseId: String) = "prefetch-$courseId"
+
+        private const val TAG = "question-prefetch"
+        private const val COURSE_TAG = "course:"
+        private const val BACKOFF_SECONDS = 30L
         /** WorkManager input data is limited to 10 KB. */
-        const val MAX_TOPICS = 4_000
+        private const val MAX_TOPICS = 4_000
     }
 }

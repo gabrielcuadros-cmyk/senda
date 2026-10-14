@@ -5,6 +5,7 @@ import com.fuerzasalvaje.senda.domain.model.PendingStudyItem
 import com.fuerzasalvaje.senda.domain.model.QuestionRequest
 import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
 import com.fuerzasalvaje.senda.testing.FakeAiLogger
+import com.fuerzasalvaje.senda.ui.components.AI_RESTING_MESSAGE
 import com.fuerzasalvaje.senda.ui.components.FREE_LIMIT_MESSAGE
 import com.fuerzasalvaje.senda.ui.components.aiErrorMessage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -94,19 +95,22 @@ class GeminiRetryTest {
     }
 
     @Test
-    fun `a daily quota moves to the next model without waiting`() = runTest {
+    fun `a daily quota stops at once, with no retry and no fallback, and the AI rests`() = runTest {
         val service = ChainService(script = mapOf("main" to listOf(daily()), "fb-1" to listOf("Desde fb-1"), "fb-2" to emptyList()))
 
-        assertEquals("Desde fb-1", service.studyTips(tips).getOrThrow())
-        assertEquals(listOf("main", "fb-1"), service.calls)
+        val error = service.studyTips(tips).exceptionOrNull()
+
+        assertTrue(error is AiError.Resting)
+        assertEquals(listOf("main"), service.calls)
         assertEquals(0, currentTime)
-        assertTrue(logger.lines.any { it.contains("Daily quota exhausted for main") })
+        assertEquals(AI_RESTING_MESSAGE, aiErrorMessage(error!!, "x"))
+        assertFalse(service.retrying.value)
     }
 
     @Test
-    fun `when every model ends with 429 the free limit is reached`() = runTest {
+    fun `when every model ends with a per-minute 429 the free limit is reached`() = runTest {
         val service = ChainService(
-            script = mapOf("main" to times(4, ::rate), "fb-1" to listOf(daily()), "fb-2" to listOf(daily())),
+            script = mapOf("main" to times(4, ::rate), "fb-1" to times(4, ::rate), "fb-2" to times(4, ::rate)),
         )
 
         val error = service.studyTips(tips).exceptionOrNull()
@@ -121,13 +125,13 @@ class GeminiRetryTest {
     fun `if the last model fails with 503 that error is reported, not the free limit`() = runTest {
         val service = ChainService(
             fallbacks = listOf("fb-1"),
-            script = mapOf("main" to listOf(daily()), "fb-1" to listOf(busy())),
+            script = mapOf("main" to times(4, ::rate), "fb-1" to listOf(busy())),
         )
 
         val error = service.studyTips(tips).exceptionOrNull()
 
         assertTrue(error is AiError.Server && error.code == 503)
-        assertEquals(2, service.calls.size)
+        assertEquals(5, service.calls.size)
     }
 
     @Test
@@ -149,7 +153,7 @@ class GeminiRetryTest {
 
     @Test
     fun `retrying stays on while switching models and turns off at the end`() = runTest {
-        val service = ChainService(script = mapOf("main" to listOf(daily()), "fb-1" to listOf(rate(), "Listo"), "fb-2" to emptyList()))
+        val service = ChainService(script = mapOf("main" to listOf(busy()), "fb-1" to listOf(rate(), "Listo"), "fb-2" to emptyList()))
 
         val call = async { service.studyTips(tips) }
         runCurrent()
@@ -163,7 +167,7 @@ class GeminiRetryTest {
     @Test
     fun `question generation also uses the chain`() = runTest {
         val json = """{"questions":[{"statement":"¿A?","options":["1","2","3","4"],"correctOptionIndex":0,"explanation":"x"}]}"""
-        val service = ChainService(script = mapOf("main" to listOf(daily()), "fb-1" to listOf(json), "fb-2" to emptyList()))
+        val service = ChainService(script = mapOf("main" to listOf(busy()), "fb-1" to listOf(json), "fb-2" to emptyList()))
 
         assertEquals(1, service.generateQuestions(QuestionRequest("Física", "Cinemática", 10)).getOrThrow().size)
         assertEquals(listOf("main", "fb-1"), service.calls)

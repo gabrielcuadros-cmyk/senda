@@ -51,8 +51,9 @@ class ObserveLatestTipUseCase @Inject constructor(private val repository: AIReco
 }
 
 /**
- * Asks the AI tutor for study tips using today's stress and the computed workload (D-12),
- * then stores the answer as an AIRecommendation.
+ * Asks the AI tutor for study tips using today's stress and the computed workload (D-12), then stores the answer
+ * as an AIRecommendation. At most one call per day: today's tip is returned again unless the stress check-in
+ * changed since it was written.
  */
 class GenerateStudyTipsUseCase @Inject constructor(
     private val gemini: GeminiService,
@@ -64,6 +65,12 @@ class GenerateStudyTipsUseCase @Inject constructor(
     private val clock: Clock,
 ) {
     suspend operator fun invoke(stressLevel: Int): Result<AIRecommendation> {
+        val today = LocalDate.now(clock)
+        recommendations.observeAll().first()
+            .filter { it.type == RecommendationType.STUDY_TIPS && it.createdAt.atZone(clock.zone).toLocalDate() == today }
+            .maxByOrNull { it.createdAt }
+            ?.takeIf { it.stressLevel == stressLevel }
+            ?.let { return Result.success(it) }
         val courseNames = courses.observeAll().first().associate { it.id to it.name }
         val blocks = studyBlocks.observeAll().first()
         val sessions = pomodoroSessions.observeAll().first()

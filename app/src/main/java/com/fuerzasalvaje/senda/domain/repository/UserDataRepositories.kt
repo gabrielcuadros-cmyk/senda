@@ -91,18 +91,17 @@ enum class PrefetchStatus { PREPARING, RETRYING, FAILED, IDLE }
  * Implemented with WorkManager.
  */
 interface QuestionPrefetcher {
-    /** Tops the course bank up to its target; [fresh] generates a full new set (new syllabus or PDF). */
-    fun refill(courseId: String, fresh: Boolean = false, topics: String? = null)
-
-    /** Adds questions to an attempt that started with fewer than [desired]. */
-    fun topUp(courseId: String, simulacrumId: String, desired: Int, topics: String? = null)
+    /**
+     * Queues one background refill of the course bank; a refill already queued or running is kept, so the same
+     * course never has two. The job itself decides whether Gemini is needed (see RefillQuestionBankUseCase).
+     */
+    fun refill(courseId: String, topics: String? = null)
 
     fun observeStatus(): Flow<Map<String, PrefetchStatus>>
 
     /** Does nothing: for tests and code paths without background work. */
     object None : QuestionPrefetcher {
-        override fun refill(courseId: String, fresh: Boolean, topics: String?) = Unit
-        override fun topUp(courseId: String, simulacrumId: String, desired: Int, topics: String?) = Unit
+        override fun refill(courseId: String, topics: String?) = Unit
         override fun observeStatus(): Flow<Map<String, PrefetchStatus>> = flowOf(emptyMap())
     }
 }

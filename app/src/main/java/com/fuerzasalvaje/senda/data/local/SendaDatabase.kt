@@ -35,7 +35,7 @@ import com.fuerzasalvaje.senda.data.local.entity.StudyBlockEntity
         StudyBlockEntity::class,
         StressCheckInEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
     // v3: study summaries of PDFs (a new table only); v4 drops it again (MIGRATION_3_4).
     autoMigrations = [AutoMigration(from = 2, to = 3)],
@@ -67,6 +67,13 @@ abstract class SendaDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE evaluations ADD COLUMN pdfMarkdown TEXT")
                 db.execSQL("ALTER TABLE evaluations ADD COLUMN pdfSummarized INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("DROP TABLE IF EXISTS pdf_digests")
+            }
+        }
+
+        /** v5: reused questions remember the option order shown in each attempt. */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE simulacra ADD COLUMN optionOrders TEXT NOT NULL DEFAULT '[]'")
             }
         }
     }

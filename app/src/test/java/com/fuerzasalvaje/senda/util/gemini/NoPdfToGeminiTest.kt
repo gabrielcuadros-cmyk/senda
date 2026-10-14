@@ -5,7 +5,7 @@ import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
 import com.fuerzasalvaje.senda.domain.usecase.pdf.ExtractPdfMarkdownUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.CourseMaterialUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.GenerateCourseQuestionsUseCase
-import com.fuerzasalvaje.senda.domain.usecase.simulacrum.GenerateQuestionBatchesUseCase
+import com.fuerzasalvaje.senda.domain.usecase.simulacrum.GenerateQuestionSetUseCase
 import com.fuerzasalvaje.senda.testing.FakeAiLogger
 import com.fuerzasalvaje.senda.testing.FakeCourseRepository
 import com.fuerzasalvaje.senda.testing.FakeEvaluationRepository
@@ -29,6 +29,7 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -53,7 +54,6 @@ class NoPdfToGeminiTest {
         val body = Buffer().also { chain.request().body?.writeTo(it) }.readUtf8()
         bodies += body
         val text = when {
-            body.contains("Revisa estas preguntas") -> """{"reviews":[{"index":0,"verdict":"ok"},{"index":1,"verdict":"ok"},{"index":2,"verdict":"ok"}]}"""
             body.contains("Genera exactamente") -> questionsJson()
             else -> "Repasa la ley de Ohm."
         }
@@ -97,6 +97,7 @@ class NoPdfToGeminiTest {
         config = GeminiConfig("test-key", "gemini-3-flash", GeminiConfig.PROVIDER_API_KEY),
         prompts = GeminiPrompts(json),
         logger = logger,
+        quota = com.fuerzasalvaje.senda.domain.repository.AiQuota.None,
     )
 
     @Test
@@ -109,7 +110,8 @@ class NoPdfToGeminiTest {
             FakeQuestionRepository(),
             FakeCourseRepository().apply { seed(course()) },
             CourseMaterialUseCase(evaluations, ExtractPdfMarkdownUseCase(FakePdfTextExtractor(), logger, testClock)),
-            GenerateQuestionBatchesUseCase(service, logger, Random(1)),
+            GenerateQuestionSetUseCase(service, logger, Random(1)),
+            com.fuerzasalvaje.senda.testing.FakeAiUsageStore(),
             testClock,
             logger,
         )
@@ -119,7 +121,7 @@ class NoPdfToGeminiTest {
         service.studyTips(StudyTipsRequest(3, listOf(PendingStudyItem("Parcial 1", "Física", 50.0, 20, 4.0)))).getOrThrow()
 
         assertTrue(created.isNotEmpty())
-        assertTrue(bodies.size >= 4) // questions, review, explanation and tips
+        assertEquals(3, bodies.size) // the whole bank in one call, the explanation and the tips
         // The PDF content arrives as Markdown text made on the device.
         assertTrue(bodies.any { it.contains("## Diapositiva 2") })
         bodies.forEach { body ->

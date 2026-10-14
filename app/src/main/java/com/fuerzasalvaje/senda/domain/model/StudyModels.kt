@@ -29,6 +29,12 @@ data class Question(
 
     val isCase: Boolean get() = scenario != null
     val isReported: Boolean get() = reportReason != null
+
+    /** This question with its options in [order] (a permutation of the option indexes); invalid orders are ignored. */
+    fun withOptionOrder(order: List<Int>?): Question {
+        if (order == null || order.sorted() != options.indices.toList()) return this
+        return copy(options = order.map { options[it] }, correctOptionIndex = order.indexOf(correctOptionIndex))
+    }
 }
 
 /** Why a student reports a question from the results screen. */
@@ -51,6 +57,11 @@ data class Simulacrum(
     val timeLimitMinutes: Int = SendaRules.DEFAULT_SIMULACRUM_MINUTES,
     val startedAt: Instant,
     val finishedAt: Instant? = null,
+    /**
+     * Option order shown for reused questions, by question id: position i shows the stored option at index
+     * order[i]. Answers are kept in the order shown. Questions without an entry keep their stored order.
+     */
+    val optionOrders: Map<String, List<Int>> = emptyMap(),
 ) {
     val correctCount: Int get() = answers.count { it.correct }
     val incorrectCount: Int get() = answers.count { it.selectedOptionIndex != null && !it.correct }

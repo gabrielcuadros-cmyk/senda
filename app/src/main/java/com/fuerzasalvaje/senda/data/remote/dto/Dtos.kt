@@ -77,6 +77,8 @@ data class SimulacrumDto(
     var timeLimitMinutes: Int = 20,
     var startedAt: Long = 0,
     var finishedAt: Long? = null,
+    /** "questionId|2,0,3,1" per reused question: Firestore reads numbers back as Long, so they travel as text. */
+    var optionOrders: List<String> = emptyList(),
 )
 
 @IgnoreExtraProperties

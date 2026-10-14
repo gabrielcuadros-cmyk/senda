@@ -3,6 +3,7 @@ package com.fuerzasalvaje.senda.ui.simulacra
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.QuestionBankUseCase
 import com.fuerzasalvaje.senda.domain.repository.QuestionPrefetcher
 import com.fuerzasalvaje.senda.domain.repository.PrefetchStatus
+import com.fuerzasalvaje.senda.domain.repository.AiQuota
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fuerzasalvaje.senda.domain.engine.SimulacrumTimer
@@ -34,7 +35,7 @@ data class CourseSimulacraItem(
     val readiness: Int?,
     val questionCount: Int,
     val attempts: Int,
-    /** Questions a new attempt can use right now (not reported, not recently answered right). */
+    /** Questions never asked yet (not reported). With 0, attempts reuse the saved ones. */
     val available: Int = questionCount,
     val prefetch: PrefetchStatus = PrefetchStatus.IDLE,
 )
@@ -50,6 +51,8 @@ data class SimulacraUiState(
     /** Course that needs the student to type its topics before generating questions. */
     val askTopicsFor: Course? = null,
     val message: String? = null,
+    /** The daily Gemini quota is used up: attempts keep coming from the saved questions. */
+    val aiResting: Boolean = false,
     /** One-shot navigation to a freshly started attempt. */
     val startedId: String? = null,
 )
@@ -63,6 +66,7 @@ class SimulacraViewModel @Inject constructor(
     simulacra: SimulacrumRepository,
     bank: QuestionBankUseCase,
     prefetcher: QuestionPrefetcher,
+    quota: AiQuota,
     private val startSimulacrum: StartSimulacrumUseCase,
     private val finishSimulacrum: FinishSimulacrumUseCase,
     private val clock: Clock,
@@ -70,17 +74,20 @@ class SimulacraViewModel @Inject constructor(
 
     private val ui = MutableStateFlow(SimulacraUiState())
 
-    private val background = combine(bank.observeAvailableCounts(), prefetcher.observeStatus()) { available, status -> available to status }
+    private val background = combine(bank.observeAvailableCounts(), prefetcher.observeStatus(), quota.observeResting()) { available, status, resting ->
+        Triple(available, status, resting)
+    }
 
     val state: StateFlow<SimulacraUiState> = combine(
         combine(observeCourses(), observeReadiness()) { courses, readiness -> courses to readiness },
         questions.observeAll(), simulacra.observeAll(), ui, background,
-    ) { (courses, readiness), questionList, attempts, current, (available, status) ->
-        val questionsByCourse = questionList.groupingBy { it.courseId }.eachCount()
+    ) { (courses, readiness), questionList, attempts, current, (available, status, resting) ->
+        val questionsByCourse = questionList.filter { !it.isReported }.groupingBy { it.courseId }.eachCount()
         val finishedByCourse = attempts.filter { it.isFinished }.groupingBy { it.courseId }.eachCount()
         val now = clock.instant()
         current.copy(
             loading = false,
+            aiResting = resting,
             items = courses.map {
                 CourseSimulacraItem(
                     course = it,

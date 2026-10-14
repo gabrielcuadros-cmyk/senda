@@ -2,7 +2,6 @@ package com.fuerzasalvaje.senda.testing
 
 import com.fuerzasalvaje.senda.domain.repository.QuestionPrefetcher
 import com.fuerzasalvaje.senda.domain.repository.PrefetchStatus
-import com.fuerzasalvaje.senda.domain.model.QuestionVerdict
 import com.fuerzasalvaje.senda.domain.model.AIRecommendation
 import com.fuerzasalvaje.senda.domain.model.Availability
 import com.fuerzasalvaje.senda.domain.model.Course
@@ -116,20 +115,11 @@ class FakeAuthRepository(user: User? = User("u1", "Ana Torres", "ana@tecsup.edu.
 
 /**
  * Returns [tipsResult]; records the last request so tests can check what was sent. Questions come from
- * [questionsFor] when set (per batch), otherwise [questionsResult]; the review approves everything unless
- * [reviewFor] says otherwise.
+ * [questionsFor] when set, otherwise [questionsResult].
  */
 class FakeGeminiService(var tipsResult: Result<String> = Result.success("- Estudia **Física** primero")) : GeminiService {
     var questionsFor: ((QuestionRequest) -> Result<List<GeneratedQuestion>>)? = null
-    var reviewFor: (QuestionRequest, List<GeneratedQuestion>) -> Result<List<QuestionVerdict>> =
-        { _, questions -> Result.success(questions.indices.map { QuestionVerdict(it, approved = true) }) }
     val requests = java.util.Collections.synchronizedList(mutableListOf<QuestionRequest>())
-    var reviewCalls = 0
-
-    override suspend fun reviewQuestions(request: QuestionRequest, questions: List<GeneratedQuestion>): Result<List<QuestionVerdict>> {
-        reviewCalls++
-        return reviewFor(request, questions)
-    }
     var lastTipsRequest: StudyTipsRequest? = null
     var explainResult: Result<String> = Result.success("La respuesta correcta es **B**.")
     var explainCalls = 0
@@ -141,9 +131,13 @@ class FakeGeminiService(var tipsResult: Result<String> = Result.success("- Estud
         courseName: String, question: String, options: List<String>, correctAnswer: String, studentAnswer: String?,
     ): Result<String> {
         explainCalls++
+        if (explainDelayMillis > 0) kotlinx.coroutines.delay(explainDelayMillis)
         return explainResult
     }
+    var explainDelayMillis = 0L
+    var tipsCalls = 0
     override suspend fun studyTips(request: StudyTipsRequest): Result<String> {
+        tipsCalls++
         lastTipsRequest = request
         return tipsResult
     }
@@ -177,14 +171,28 @@ fun generated(n: Int, topic: String = "cinemática") = GeneratedQuestion(
 
 /** Records what would be sent to WorkManager. */
 class FakeQuestionPrefetcher : QuestionPrefetcher {
-    val refills = mutableListOf<Pair<String, Boolean>>()
-    val topUps = mutableListOf<Triple<String, String, Int>>()
+    val refills = mutableListOf<String>()
     val status = MutableStateFlow<Map<String, PrefetchStatus>>(emptyMap())
-    override fun refill(courseId: String, fresh: Boolean, topics: String?) { refills += courseId to fresh }
-    override fun topUp(courseId: String, simulacrumId: String, desired: Int, topics: String?) {
-        topUps += Triple(courseId, simulacrumId, desired)
-    }
+    override fun refill(courseId: String, topics: String?) { refills += courseId }
     override fun observeStatus(): Flow<Map<String, PrefetchStatus>> = status
+}
+
+/** In-memory AI usage counters, as SharedPreferences would keep them. */
+class FakeAiUsageStore : com.fuerzasalvaje.senda.domain.repository.AiUsageStore {
+    var callsDate: java.time.LocalDate? = null
+    var calls = 0
+    var exhaustedUntil: java.time.Instant? = null
+    val hashes = mutableMapOf<String, String>()
+    override suspend fun callsOn(date: java.time.LocalDate) = if (callsDate == date) calls else 0
+    override suspend fun addCall(date: java.time.LocalDate): Int {
+        calls = if (callsDate == date) calls + 1 else 1
+        callsDate = date
+        return calls
+    }
+    override suspend fun quotaExhaustedUntil() = exhaustedUntil
+    override suspend fun setQuotaExhaustedUntil(until: java.time.Instant?) { exhaustedUntil = until }
+    override suspend fun materialHash(courseId: String) = hashes[courseId]
+    override suspend fun setMaterialHash(courseId: String, hash: String) { hashes[courseId] = hash }
 }
 
 class FakeQuestionRepository : FakeOwnedRepository<Question>({ it.id }), QuestionRepository {

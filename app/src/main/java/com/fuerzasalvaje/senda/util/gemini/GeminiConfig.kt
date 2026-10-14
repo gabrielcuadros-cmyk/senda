@@ -17,5 +17,3 @@ class GeminiConfig(
         const val PROVIDER_FIREBASE = "firebase"
     }
 }
-
-class GeminiException(message: String, cause: Throwable? = null) : Exception(message, cause)

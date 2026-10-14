@@ -27,6 +27,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuerzasalvaje.senda.domain.model.Course
+import com.fuerzasalvaje.senda.domain.usecase.simulacrum.CourseMaterial
 import com.fuerzasalvaje.senda.ui.components.EmptyState
 import com.fuerzasalvaje.senda.ui.components.SendaCard
 import com.fuerzasalvaje.senda.ui.components.SendaFilterChip
@@ -62,7 +64,9 @@ fun SimulacraScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(state.startedId) { state.startedId?.let { viewModel.consumeStarted(); onOpenSimulacrum(it) } }
-    LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); viewModel.consumeMessage() } }
+    LaunchedEffect(state.message) {
+        state.message?.let { snackbar.showSnackbar(it, withDismissAction = true, duration = SnackbarDuration.Long); viewModel.consumeMessage() }
+    }
 
     Box(Modifier.fillMaxSize()) {
         when {
@@ -178,17 +182,29 @@ private fun TopicsDialog(course: Course, onConfirm: (String) -> Unit, onDismiss:
         title = { Text("¿Qué temas entran?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("${course.name} no tiene temario registrado. Escribe los temas para que la IA prepare las preguntas.")
+                Text(
+                    "El temario de ${course.name} es muy corto o no existe, y sus exámenes no tienen PDF. " +
+                        "Escribe los temas para que la IA prepare las preguntas, o adjunta el PDF del temario al examen.",
+                )
                 OutlinedTextField(
                     value = topics,
                     onValueChange = { topics = it },
                     placeholder = { Text("Ej.: leyes de Newton, trabajo y energía") },
+                    supportingText = {
+                        val missing = CourseMaterial.MIN_SYLLABUS_CHARS - topics.trim().length
+                        Text(if (missing > 0) "Escribe al menos $missing caracteres más." else "Listo para generar.")
+                    },
                     minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(topics) }, enabled = topics.isNotBlank()) { Text("Generar") } },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(topics) },
+                enabled = topics.trim().length >= CourseMaterial.MIN_SYLLABUS_CHARS,
+            ) { Text("Generar") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
 }

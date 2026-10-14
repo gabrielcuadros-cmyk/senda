@@ -13,15 +13,20 @@ import kotlin.math.roundToInt
 object QuestionValidator {
     const val OPTION_COUNT = 4
 
-    fun isValid(question: GeneratedQuestion): Boolean {
+    /** Why a question is rejected; empty when it is valid. Used for the SendaAI diagnostic log. */
+    fun problems(question: GeneratedQuestion): List<String> = buildList {
         val options = question.options.map { it.trim() }
-        return question.statement.isNotBlank() &&
-            options.size == OPTION_COUNT &&
-            options.none { it.isBlank() } &&
-            options.map { it.lowercase() }.toSet().size == OPTION_COUNT &&
-            question.correctOptionIndex in options.indices &&
-            question.explanation.isNotBlank()
+        if (question.statement.isBlank()) add("enunciado vacío")
+        if (options.size != OPTION_COUNT) {
+            add("tiene ${options.size} ${if (options.size == 1) "opción" else "opciones"} en vez de $OPTION_COUNT")
+        }
+        if (options.any { it.isBlank() }) add("opción vacía")
+        if (options.map { it.lowercase() }.toSet().size != options.size) add("opciones repetidas")
+        if (question.correctOptionIndex !in options.indices) add("índice correcto fuera de rango (${question.correctOptionIndex})")
+        if (question.explanation.isBlank()) add("sin explicación")
     }
+
+    fun isValid(question: GeneratedQuestion): Boolean = problems(question).isEmpty()
 }
 
 /**

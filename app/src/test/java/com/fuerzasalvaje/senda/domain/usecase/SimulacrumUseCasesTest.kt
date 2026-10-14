@@ -1,11 +1,12 @@
 package com.fuerzasalvaje.senda.domain.usecase
 
-import com.fuerzasalvaje.senda.domain.usecase.simulacrum.CourseSyllabusUseCase
+import com.fuerzasalvaje.senda.domain.usecase.simulacrum.CourseMaterialUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.ExplainMistakeUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.MissingSyllabusException
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.NoValidQuestionsException
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.PrepareQuestionsUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.StartSimulacrumUseCase
+import com.fuerzasalvaje.senda.testing.FakeAiLogger
 import com.fuerzasalvaje.senda.testing.FakeCourseRepository
 import com.fuerzasalvaje.senda.testing.FakeEvaluationRepository
 import com.fuerzasalvaje.senda.testing.FakeGeminiService
@@ -34,7 +35,8 @@ class SimulacrumUseCasesTest {
     private val gemini = FakeGeminiService()
     private val recommendations = FakeRecommendationRepository()
 
-    private val prepare = PrepareQuestionsUseCase(questions, courses, CourseSyllabusUseCase(evaluations), gemini, testClock)
+    private val logger = FakeAiLogger()
+    private val prepare = PrepareQuestionsUseCase(questions, courses, CourseMaterialUseCase(evaluations), gemini, logger, testClock)
 
     @Test
     fun `an existing bank is reused without calling the AI`() = runTest {
@@ -69,11 +71,50 @@ class SimulacrumUseCasesTest {
 
     @Test
     fun `no valid question is an explicit failure`() = runTest {
-        evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Óptica"))
+        evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Óptica geométrica y lentes"))
         gemini.questionsResult = Result.success(listOf(generated(1).copy(options = emptyList())))
 
         assertTrue(prepare("c1", 10).exceptionOrNull() is NoValidQuestionsException)
         assertTrue(questions.items.value.isEmpty())
+    }
+
+    @Test
+    fun `fewer valid questions than requested are used when there are at least 3`() = runTest {
+        evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Cinemática y dinámica"))
+        gemini.questionsResult = Result.success((1..3).map(::generated) + generated(4).copy(options = listOf("A")))
+
+        assertEquals(3, prepare("c1", 10).getOrThrow().size)
+        assertTrue(logger.lines.contains("I Validation: received=4 valid=3 discarded=1"))
+        assertTrue(logger.lines.contains("W Discarded question #4: tiene 1 opción en vez de 4, índice correcto fuera de rango (1)"))
+    }
+
+    @Test
+    fun `fewer than 3 valid questions is an error`() = runTest {
+        evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Cinemática y dinámica"))
+        gemini.questionsResult = Result.success((1..2).map(::generated))
+
+        val error = prepare("c1", 10).exceptionOrNull() as NoValidQuestionsException
+        assertEquals(2, error.valid)
+        assertTrue(questions.items.value.isEmpty())
+    }
+
+    @Test
+    fun `a syllabus under 15 characters without PDF asks for topics`() = runTest {
+        evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Unidad 2"))
+
+        assertTrue(prepare("c1", 10).exceptionOrNull() is MissingSyllabusException)
+        assertTrue(prepare("c1", 10, topics = "corto").exceptionOrNull() is MissingSyllabusException)
+        assertEquals(0, gemini.generateCalls)
+    }
+
+    @Test
+    fun `an exam PDF is enough even with a short syllabus and is sent to the AI`() = runTest {
+        evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Unidad 2", syllabusPdfPath = "/files/pdfs/temario.pdf"))
+
+        prepare("c1", 10).getOrThrow()
+
+        assertEquals(listOf("/files/pdfs/temario.pdf"), gemini.lastRequest?.pdfPaths)
+        assertEquals("Parcial 1: Unidad 2", gemini.lastRequest?.syllabus)
     }
 
     @Test

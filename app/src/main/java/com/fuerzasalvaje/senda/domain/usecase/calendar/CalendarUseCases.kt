@@ -14,6 +14,7 @@ import com.fuerzasalvaje.senda.domain.model.WeeklyProgress
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
 import com.fuerzasalvaje.senda.domain.repository.StudyBlockRepository
+import com.fuerzasalvaje.senda.domain.repository.Ticker
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import java.time.Clock
@@ -71,9 +72,11 @@ class ObservePrioritiesUseCase @Inject constructor(
     private val evaluations: EvaluationRepository,
     private val courses: CourseRepository,
     private val engine: PriorityEngine,
+    private val ticker: Ticker = Ticker.Never,
 ) {
+    /** Recomputed on every data change and every minute, so "Faltan…" and overdue items stay exact (HU-11). */
     operator fun invoke(): Flow<List<PriorityItem>> =
-        combine(evaluations.observeAll(), courses.observeAll()) { evaluationList, courseList ->
+        combine(evaluations.observeAll(), courses.observeAll(), ticker.ticks) { evaluationList, courseList, _ ->
             engine.rank(evaluationList, courseList.associate { it.id to it.importance })
         }
 }

@@ -9,7 +9,10 @@ import com.fuerzasalvaje.senda.domain.model.SendaRules
 import java.time.Duration
 import java.time.Instant
 
-/** Result of bringing a run up to date: [completed] is the session to save when a focus block just ended. */
+/**
+ * Result of bringing a run up to date. [completed] is the record to save when a focus block just ended:
+ * one record per block, covering the block's own interval, so it can be compared with study blocks.
+ */
 data class SettledRun(val run: PomodoroRun, val completed: PomodoroSession? = null)
 
 /**
@@ -89,7 +92,16 @@ object PomodoroEngine {
             run.session
         }
         val settled = run.copy(step = next, remaining = minutes(next.minutes), endsAt = null, session = session)
-        return SettledRun(settled, completed = if (finishedFocus) session else null)
+        val record = if (finishedFocus && session != null) {
+            session.copy(
+                id = "${session.id}-${session.completedCycles}",
+                startedAt = endsAt - minutes(run.step.minutes),
+                endedAt = endsAt,
+                focusMinutes = run.step.minutes,
+                completedCycles = 1,
+            )
+        } else null
+        return SettledRun(settled, completed = record)
     }
 
     /** Changes the evaluation (or course) the next focus minutes go to; only while the timer is stopped. */

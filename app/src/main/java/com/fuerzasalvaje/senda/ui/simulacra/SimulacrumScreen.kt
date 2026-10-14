@@ -1,5 +1,6 @@
 package com.fuerzasalvaje.senda.ui.simulacra
 
+import androidx.compose.material3.TextButton
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -55,12 +56,17 @@ fun SimulacrumScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(state.finished) { if (state.finished) state.simulacrum?.let { onFinished(it.id) } }
-    BackHandler(enabled = !state.finished) { viewModel.requestExit() }
+    // Only a running attempt asks before leaving; an error screen goes straight back.
+    BackHandler(enabled = state.simulacrum != null && !state.finished) { viewModel.requestExit() }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         if (state.loading || state.simulacrum == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                state.error?.let { Text(it) } ?: CircularProgressIndicator()
+                val error = state.error
+                if (error == null) CircularProgressIndicator() else Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(error)
+                    TextButton(onClick = onExit) { Text("Volver") }
+                }
             }
             return@Column
         }

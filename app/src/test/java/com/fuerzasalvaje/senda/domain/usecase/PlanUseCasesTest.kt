@@ -49,7 +49,10 @@ class PlanUseCasesTest {
     fun `completed pomodoros linked to the evaluation reduce the pending minutes`() {
         val target = exam("e", inHours = 50).copy(studyHours = 3.0)
         val block = StudyBlock("b", "c1", "e", TEST_NOW, TEST_NOW + Duration.ofMinutes(50), StudyBlockStatus.SCHEDULED)
-        val linked = PomodoroSession(id = "p1", evaluationId = "e", startedAt = TEST_NOW, focusMinutes = 25, completedCycles = 2)
+        // Two hours after the block, so none of its minutes overlap it.
+        val linked = PomodoroSession(
+            id = "p1", evaluationId = "e", startedAt = TEST_NOW + Duration.ofHours(2), focusMinutes = 25, completedCycles = 2,
+        )
         val other = linked.copy(id = "p2", evaluationId = "x")
         val unlinked = linked.copy(id = "p3", evaluationId = null)
 
@@ -58,6 +61,37 @@ class PlanUseCasesTest {
         assertEquals(StudyProgress(totalMinutes = 180, scheduledMinutes = 50, focusMinutes = 50), progress)
         assertEquals(80, progress.pendingMinutes)
         assertEquals(80, pendingStudyMinutes(target, listOf(block), listOf(linked)))
+    }
+
+    @Test
+    fun `a pomodoro inside an agreed block of the same evaluation counts once`() {
+        val target = exam("e", inHours = 50).copy(studyHours = 3.0)
+        // Block 08:00–09:00; Pomodoro 08:20–08:45 inside it, another 09:30–09:55 outside it.
+        val block = StudyBlock("b", "c1", "e", TEST_NOW, TEST_NOW + Duration.ofHours(1), StudyBlockStatus.SCHEDULED)
+        val inside = PomodoroSession(
+            id = "in", evaluationId = "e", startedAt = TEST_NOW + Duration.ofMinutes(20),
+            endedAt = TEST_NOW + Duration.ofMinutes(45), focusMinutes = 25, completedCycles = 1,
+        )
+        val outside = inside.copy(id = "out", startedAt = TEST_NOW + Duration.ofMinutes(90), endedAt = TEST_NOW + Duration.ofMinutes(115))
+        // Half inside: 08:50–09:15 overlaps the block for 10 minutes.
+        val half = inside.copy(id = "half", startedAt = TEST_NOW + Duration.ofMinutes(50), endedAt = TEST_NOW + Duration.ofMinutes(75))
+
+        assertEquals(0, studyProgress(target, listOf(block), listOf(inside)).focusMinutes)
+        assertEquals(25, studyProgress(target, listOf(block), listOf(outside)).focusMinutes)
+        assertEquals(15, studyProgress(target, listOf(block), listOf(half)).focusMinutes)
+        assertEquals(180 - 60 - 25 - 15, studyProgress(target, listOf(block), listOf(inside, outside, half)).pendingMinutes)
+    }
+
+    @Test
+    fun `a pomodoro of another evaluation inside the block still counts for its own`() {
+        val other = exam("x", inHours = 50).copy(studyHours = 2.0)
+        val block = StudyBlock("b", "c1", "e", TEST_NOW, TEST_NOW + Duration.ofHours(1), StudyBlockStatus.SCHEDULED)
+        val session = PomodoroSession(
+            id = "p", evaluationId = "x", startedAt = TEST_NOW, endedAt = TEST_NOW + Duration.ofMinutes(25),
+            focusMinutes = 25, completedCycles = 1,
+        )
+
+        assertEquals(25, studyProgress(other, listOf(block), listOf(session)).focusMinutes)
     }
 
     @Test

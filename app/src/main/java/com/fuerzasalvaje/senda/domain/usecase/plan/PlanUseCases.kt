@@ -39,11 +39,22 @@ data class StudyProgress(val totalMinutes: Int, val scheduledMinutes: Int, val f
 }
 
 fun studyProgress(evaluation: Evaluation, blocks: List<StudyBlock>, sessions: List<PomodoroSession> = emptyList()): StudyProgress {
-    val scheduled = blocks
-        .filter { it.evaluationId == evaluation.id && it.status != StudyBlockStatus.SUGGESTED }
-        .sumOf { Duration.between(it.startAt, it.endAt).toMinutes() }
-    val focus = sessions.filter { it.evaluationId == evaluation.id }.sumOf { it.focusedMinutes }
-    return StudyProgress((evaluation.studyHours * 60).toInt(), scheduled.toInt(), focus)
+    val agreed = blocks.filter { it.evaluationId == evaluation.id && it.status != StudyBlockStatus.SUGGESTED }
+    val scheduled = agreed.sumOf { Duration.between(it.startAt, it.endAt).toMinutes() }
+    // A Pomodoro done inside an agreed block of the same evaluation is already counted by the block.
+    val focus = sessions.filter { it.evaluationId == evaluation.id }.sumOf { session ->
+        val start = session.startedAt
+        val end = session.endedAt ?: (start + Duration.ofMinutes(session.focusedMinutes.toLong()))
+        val overlap = agreed.sumOf { block -> overlapMinutes(start, end, block.startAt, block.endAt) }
+        (session.focusedMinutes - overlap).coerceAtLeast(0L)
+    }
+    return StudyProgress((evaluation.studyHours * 60).toInt(), scheduled.toInt(), focus.toInt())
+}
+
+private fun overlapMinutes(aStart: Instant, aEnd: Instant, bStart: Instant, bEnd: Instant): Long {
+    val start = maxOf(aStart, bStart)
+    val end = minOf(aEnd, bEnd)
+    return if (end.isAfter(start)) Duration.between(start, end).toMinutes() else 0L
 }
 
 /** Study minutes still missing for [evaluation], after the agreed blocks and the completed Pomodoros. */

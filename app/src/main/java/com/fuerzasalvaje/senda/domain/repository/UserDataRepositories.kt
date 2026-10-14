@@ -14,6 +14,7 @@ import com.fuerzasalvaje.senda.domain.model.StressCheckIn
 import com.fuerzasalvaje.senda.domain.model.StudyBlock
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 import java.time.LocalDate
 
 /**
@@ -74,6 +75,16 @@ interface PomodoroTimer {
     fun skip()
     /** Credits the next focus minutes to [evaluationId] (or only to [courseId]); ignored while running. */
     fun link(evaluationId: String?, courseId: String?, title: String?)
+}
+
+/** Periodic signal for values that depend on the current time. */
+interface Ticker {
+    val ticks: Flow<Unit>
+
+    /** Emits once: for tests and places that only need the current value. */
+    object Never : Ticker {
+        override val ticks: Flow<Unit> = flowOf(Unit)
+    }
 }
 
 interface StressCheckInRepository : OwnedRepository<StressCheckIn> {

@@ -1,5 +1,10 @@
 package com.fuerzasalvaje.senda.ui.components
 
+import com.fuerzasalvaje.senda.domain.model.localPdfPath
+import com.fuerzasalvaje.senda.domain.engine.Validators
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,6 +55,7 @@ fun EvaluationDetailSheet(
     highlightedPhase: ProjectPhase? = null,
     conflicts: List<Conflict> = emptyList(),
 ) {
+    val context = LocalContext.current
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -81,12 +87,35 @@ fun EvaluationDetailSheet(
                 }
                 is Project -> if (evaluation.members.isNotEmpty()) Detail("Integrantes", evaluation.members.joinToString(", "))
             }
+            course?.let { Detail("Importancia", "${it.importance.label} (del curso)") }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Dificultad", style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(110.dp))
                 DifficultyStars(evaluation.difficulty)
             }
             Detail("Peso", Formats.percent(evaluation.weightPercent))
             Detail("Horas de estudio", Formats.hours(evaluation.studyHours))
+
+            evaluation.localPdfPath?.let { path ->
+                OutlinedButton(onClick = { openLocalPdf(context, path) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.PictureAsPdf, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (evaluation is Lab) "Ver guía en PDF" else "Ver temario en PDF")
+                }
+            }
+            if (evaluation is Project && evaluation.rubric.isNotEmpty()) {
+                Text("Rúbrica", style = MaterialTheme.typography.titleSmall)
+                evaluation.rubric.forEach { item ->
+                    Row {
+                        Text(item.criterion, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        Text("${Validators.formatNumber(item.maxScore)} pts", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+                Text(
+                    "Total: ${Validators.formatNumber(evaluation.rubric.sumOf { it.maxScore })} pts",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             conflicts.forEach { Text("⚠ ${conflictMessage(it)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 

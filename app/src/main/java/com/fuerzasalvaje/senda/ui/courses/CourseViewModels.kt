@@ -162,8 +162,10 @@ class CourseFormViewModel @Inject constructor(
         val id = original?.id ?: return
         _state.update { it.copy(confirmDelete = false, saving = true) }
         viewModelScope.launch {
-            deleteCourse(id)
-            _state.update { it.copy(saving = false, deleted = true) }
+            deleteCourse(id).fold(
+                onSuccess = { _state.update { it.copy(saving = false, deleted = true) } },
+                onFailure = { _state.update { it.copy(saving = false, error = "No se pudo eliminar el curso. Inténtalo de nuevo.") } },
+            )
         }
     }
 }

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the PDF copies (D-11) can be shared with a viewer app, read-only. -->
+<paths>
+    <files-path name="pdfs" path="pdfs/" />
+</paths>

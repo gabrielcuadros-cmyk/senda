@@ -1,5 +1,13 @@
 package com.fuerzasalvaje.senda.ui.home
 
+import com.fuerzasalvaje.senda.domain.model.EvaluationStatus
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -139,6 +147,7 @@ fun HomeScreen(
                     courseName = state.courseOf(item.evaluation)?.name,
                     progress = state.studyProgress[item.evaluation.id],
                     onClick = { viewModel.open(item.evaluation) },
+                    onStatus = { viewModel.setStatus(item.evaluation, it) },
                 )
             }
         }
@@ -177,7 +186,13 @@ private fun WeeklyProgressCard(state: HomeUiState) {
 }
 
 @Composable
-private fun PriorityCard(item: PriorityItem, courseName: String?, progress: StudyProgress?, onClick: () -> Unit) {
+private fun PriorityCard(
+    item: PriorityItem,
+    courseName: String?,
+    progress: StudyProgress?,
+    onClick: () -> Unit,
+    onStatus: (EvaluationStatus) -> Unit,
+) {
     val evaluation = item.evaluation
     SendaCard(onClick = onClick, containerColor = SendaTheme.colors.forType(evaluation.type), modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -201,9 +216,31 @@ private fun PriorityCard(item: PriorityItem, courseName: String?, progress: Stud
             DifficultyStars(evaluation.difficulty)
         }
         if (progress != null && progress.totalMinutes > 0) StudyHoursLine(progress)
-        TextButton(onClick = onClick, modifier = Modifier.align(Alignment.End)) {
-            Text("Ver detalle")
-            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            QuickStatus(item.evaluation.status, onStatus)
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onClick) {
+                Text("Ver detalle")
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null)
+            }
+        }
+    }
+}
+
+/** HU-08: status chip that opens a menu right on the card; for projects it applies to every phase (D-17). */
+@Composable
+private fun QuickStatus(status: EvaluationStatus, onStatus: (EvaluationStatus) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        AssistChip(
+            onClick = { open = true },
+            label = { Text(status.label) },
+            trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, contentDescription = "Cambiar estado") },
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            EvaluationStatus.entries.forEach { option ->
+                DropdownMenuItem(text = { Text(option.label) }, onClick = { open = false; onStatus(option) })
+            }
         }
     }
 }

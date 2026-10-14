@@ -14,9 +14,9 @@ data class CourseLoad(
     val hours: Double,
     /** Share of the week's total study hours, 0 to 1. */
     val share: Double,
-) {
-    val isCritical: Boolean get() = share > SendaRules.CRITICAL_COURSE_SHARE
-}
+    /** Above 40 % of the week, and only when at least two courses have hours (one course is always 100 %). */
+    val isCritical: Boolean = false,
+)
 
 data class CourseLoadReport(val loads: List<CourseLoad>, val totalHours: Double) {
     val critical: List<CourseLoad> get() = loads.filter { it.isCritical }
@@ -45,8 +45,12 @@ object CriticalCourseAnalyzer {
 
         val total = hoursByCourse.values.sum()
         val byId = courses.associateBy { it.id }
+        val canBeCritical = hoursByCourse.size >= SendaRules.MIN_COURSES_FOR_CRITICAL
         val loads = hoursByCourse
-            .map { (courseId, hours) -> CourseLoad(courseId, byId[courseId], hours, if (total == 0.0) 0.0 else hours / total) }
+            .map { (courseId, hours) ->
+                val share = if (total == 0.0) 0.0 else hours / total
+                CourseLoad(courseId, byId[courseId], hours, share, canBeCritical && share > SendaRules.CRITICAL_COURSE_SHARE)
+            }
             .sortedByDescending { it.hours }
         return CourseLoadReport(loads, total)
     }

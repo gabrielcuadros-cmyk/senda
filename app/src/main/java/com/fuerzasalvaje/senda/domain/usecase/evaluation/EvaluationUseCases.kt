@@ -10,6 +10,7 @@ import com.fuerzasalvaje.senda.domain.model.Project
 import com.fuerzasalvaje.senda.domain.model.localPdfPath
 import com.fuerzasalvaje.senda.domain.repository.DocumentStorage
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
+import com.fuerzasalvaje.senda.domain.repository.StudyBlockRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import java.time.Duration
@@ -75,12 +76,15 @@ class RescheduleEvaluationUseCase @Inject constructor(private val repository: Ev
     }
 }
 
+/** HU-09: deletes the evaluation, its local PDF and the study blocks planned for it (and so their alerts). */
 class DeleteEvaluationUseCase @Inject constructor(
     private val repository: EvaluationRepository,
     private val storage: DocumentStorage,
+    private val studyBlocks: StudyBlockRepository,
 ) {
     suspend operator fun invoke(evaluation: Evaluation): Result<Unit> {
         evaluation.localPdfPath?.let { storage.delete(it) }
+        studyBlocks.observeAll().first().filter { it.evaluationId == evaluation.id }.forEach { studyBlocks.delete(it.id) }
         return repository.delete(evaluation.id)
     }
 }

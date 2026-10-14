@@ -4,12 +4,15 @@ import com.fuerzasalvaje.senda.domain.model.AIRecommendation
 import com.fuerzasalvaje.senda.domain.model.Availability
 import com.fuerzasalvaje.senda.domain.model.Course
 import com.fuerzasalvaje.senda.domain.model.Evaluation
+import com.fuerzasalvaje.senda.domain.model.PomodoroConfig
 import com.fuerzasalvaje.senda.domain.model.PomodoroSession
 import com.fuerzasalvaje.senda.domain.model.Question
+import com.fuerzasalvaje.senda.domain.model.ReminderSetting
 import com.fuerzasalvaje.senda.domain.model.Simulacrum
 import com.fuerzasalvaje.senda.domain.model.StressCheckIn
 import com.fuerzasalvaje.senda.domain.model.StudyBlock
 import kotlinx.coroutines.flow.Flow
+import java.time.Instant
 import java.time.LocalDate
 
 /**
@@ -47,6 +50,20 @@ interface StudyBlockRepository : OwnedRepository<StudyBlock>
 interface AvailabilityRepository {
     fun observe(): Flow<Availability>
     suspend fun save(availability: Availability): Result<Unit>
+}
+
+/** Reminder and Pomodoro preferences of the signed-in student (D-13). Emit the defaults until saved. */
+interface SettingsRepository {
+    fun observeReminders(): Flow<ReminderSetting>
+    suspend fun saveReminders(setting: ReminderSetting): Result<Unit>
+    fun observePomodoro(): Flow<PomodoroConfig>
+    suspend fun savePomodoro(config: PomodoroConfig): Result<Unit>
+}
+
+/** Notifies the end of the running Pomodoro step even when the app is in the background. */
+interface PomodoroAlarm {
+    fun schedule(at: Instant, title: String, message: String)
+    fun cancel()
 }
 
 interface StressCheckInRepository : OwnedRepository<StressCheckIn> {

@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.HourglassTop
+import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,16 +40,26 @@ import com.fuerzasalvaje.senda.ui.auth.RegisterScreen
 import com.fuerzasalvaje.senda.ui.calendar.CalendarScreen
 import com.fuerzasalvaje.senda.ui.components.AiBusyBanner
 import com.fuerzasalvaje.senda.ui.components.ConfirmDialog
-import com.fuerzasalvaje.senda.ui.components.EmptyState
 import com.fuerzasalvaje.senda.ui.courses.CourseFormScreen
 import com.fuerzasalvaje.senda.ui.courses.CourseListScreen
 import com.fuerzasalvaje.senda.ui.evaluation.EvaluationFormScreen
+import com.fuerzasalvaje.senda.ui.focus.FocusScreen
 import com.fuerzasalvaje.senda.ui.home.HomeScreen
 import com.fuerzasalvaje.senda.ui.plan.StudyPlanScreen
+import com.fuerzasalvaje.senda.ui.settings.ReminderSettingsScreen
 import com.fuerzasalvaje.senda.ui.simulacra.ProgressScreen
 import com.fuerzasalvaje.senda.ui.simulacra.SimulacraScreen
 import com.fuerzasalvaje.senda.ui.simulacra.SimulacrumResultScreen
 import com.fuerzasalvaje.senda.ui.simulacra.SimulacrumScreen
+import com.fuerzasalvaje.senda.ui.wellbeing.WellbeingScreen
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -85,6 +95,7 @@ private fun MainNavHost(onSignOut: () -> Unit) {
     val destination = backStackEntry?.destination
     val currentTab = Tab.entries.firstOrNull { tab -> destination?.hierarchy?.any { it.hasRoute(tab.route::class) } == true }
     var confirmSignOut by remember { mutableStateOf(false) }
+    RequestNotificationPermission()
 
     Scaffold(
         topBar = {
@@ -92,6 +103,9 @@ private fun MainNavHost(onSignOut: () -> Unit) {
                 TopAppBar(
                     title = { Text(if (currentTab == Tab.HOME) "Senda" else currentTab.label) },
                     actions = {
+                        IconButton(onClick = { navController.navigate(ReminderSettingsRoute) }) {
+                            Icon(Icons.Rounded.NotificationsNone, "Recordatorios")
+                        }
                         IconButton(onClick = { navController.navigate(CourseListRoute) }) { Icon(Icons.Rounded.School, "Mis cursos") }
                         IconButton(onClick = { confirmSignOut = true }) { Icon(Icons.AutoMirrored.Rounded.Logout, "Cerrar sesión") }
                     },
@@ -141,7 +155,14 @@ private fun MainNavHost(onSignOut: () -> Unit) {
                     onOpenPlan = { navController.navigate(StudyPlanRoute) },
                 )
             }
-            composable<FocusRoute> { ComingSoon("Pomodoro, pausas activas y bienestar llegan en una próxima fase.") }
+            composable<FocusRoute> {
+                FocusScreen(
+                    onOpenWellbeing = { navController.navigate(WellbeingRoute) },
+                    onOpenReminders = { navController.navigate(ReminderSettingsRoute) },
+                )
+            }
+            composable<WellbeingRoute> { WellbeingScreen(onBack = { navController.popBackStack() }) }
+            composable<ReminderSettingsRoute> { ReminderSettingsScreen(onBack = { navController.popBackStack() }) }
             composable<SimulacraRoute> {
                 SimulacraScreen(
                     onOpenSimulacrum = { navController.navigate(SimulacrumRoute(it)) },
@@ -201,13 +222,15 @@ private fun NavHostController.navigateToTab(tab: Tab) {
     }
 }
 
-@Composable
-private fun ComingSoon(message: String) {
-    EmptyState(
-        icon = Icons.Rounded.HourglassTop,
-        title = "Próximamente",
-        message = message,
-        modifier = Modifier.padding(top = 48.dp),
-    )
-}
 
+/** KB-02: asks once per session for the Android 13+ notification permission that reminders need. */
+@Composable
+private fun RequestNotificationPermission() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        if (!granted) launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+}

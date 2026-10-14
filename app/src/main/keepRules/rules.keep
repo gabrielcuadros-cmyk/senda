@@ -10,3 +10,6 @@
 #-keepclassmembers class fqcn.of.javascript.interface.for.webview {
 #   public *;
 #}
+# Firestore maps these classes by reflection (getters, setters and no-arg constructors).
+-keep class com.fuerzasalvaje.senda.data.remote.dto.** { *; }
+-keep class com.fuerzasalvaje.senda.data.model.** { *; }

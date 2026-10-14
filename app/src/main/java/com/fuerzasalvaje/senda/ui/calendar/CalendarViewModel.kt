@@ -17,6 +17,8 @@ import com.fuerzasalvaje.senda.domain.model.WeeklyProgress
 import com.fuerzasalvaje.senda.domain.usecase.calendar.FilterCalendarUseCase
 import com.fuerzasalvaje.senda.domain.usecase.calendar.ObserveWeekUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ChangeEvaluationStatusUseCase
+import com.fuerzasalvaje.senda.domain.usecase.plan.UpdateStudyBlockUseCase
+import com.fuerzasalvaje.senda.domain.model.StudyBlockEntry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,12 +46,16 @@ data class CalendarUiState(
     val courses: List<Course> = emptyList(),
     val filter: EvaluationFilter = EvaluationFilter(),
     val selected: CalendarEntry? = null,
+    /** Accepted study blocks; hidden while a type filter is active, they follow the course filter. */
+    val studyBlocks: List<StudyBlockEntry> = emptyList(),
+    val selectedStudy: StudyBlockEntry? = null,
 ) {
     val days: List<LocalDate> get() = (0L until 7L).map(weekStart::plusDays)
     val clashingIds: Set<String> get() = ConflictDetector.clashingIds(conflicts)
     fun clashOn(day: LocalDate) = conflicts.any { it.date == day && it.type == ConflictType.CLASH }
     fun busyOn(day: LocalDate) = conflicts.any { it.date == day && it.type == ConflictType.BUSY_DAY }
     fun entriesOn(day: LocalDate, zone: ZoneId) = entries.filter { it.start.atZone(zone).toLocalDate() == day }
+    fun studyBlocksOn(day: LocalDate, zone: ZoneId) = studyBlocks.filter { it.block.startAt.atZone(zone).toLocalDate() == day }
 }
 
 /** HU-05 to HU-08: weekly grid, filters, conflicts and quick status changes. */
@@ -59,6 +65,7 @@ class CalendarViewModel @Inject constructor(
     private val observeWeek: ObserveWeekUseCase,
     private val filterCalendar: FilterCalendarUseCase,
     private val changeStatus: ChangeEvaluationStatusUseCase,
+    private val updateStudyBlock: UpdateStudyBlockUseCase,
     private val clock: Clock,
 ) : ViewModel() {
 
@@ -66,9 +73,13 @@ class CalendarViewModel @Inject constructor(
     private val weekStart = MutableStateFlow(observeWeek.currentWeekStart())
     private val filter = MutableStateFlow(EvaluationFilter())
     private val selectedId = MutableStateFlow<String?>(null)
+    private val selectedStudyId = MutableStateFlow<String?>(null)
+    private val selection = combine(selectedId, selectedStudyId) { entry, study -> entry to study }
 
     val state: StateFlow<CalendarUiState> =
-        combine(weekStart.flatMapLatest { observeWeek(it) }, filter, selectedId) { agenda, currentFilter, selected ->
+        combine(weekStart.flatMapLatest { observeWeek(it) }, filter, selection) { agenda, currentFilter, (selected, selectedStudy) ->
+            val visibleStudy = if (currentFilter.types.isNotEmpty()) emptyList() else
+                agenda.studyBlocks.filter { currentFilter.courseId == null || it.block.courseId == currentFilter.courseId }
             CalendarUiState(
                 loading = false,
                 weekStart = agenda.weekStart,
@@ -79,6 +90,8 @@ class CalendarViewModel @Inject constructor(
                 courses = agenda.courses,
                 filter = currentFilter,
                 selected = agenda.entries.firstOrNull { it.id == selected },
+                studyBlocks = visibleStudy,
+                selectedStudy = agenda.studyBlocks.firstOrNull { it.block.id == selectedStudy },
             )
         }.stateIn(
             viewModelScope,
@@ -98,6 +111,18 @@ class CalendarViewModel @Inject constructor(
 
     fun open(entry: CalendarEntry) { selectedId.value = entry.id }
     fun close() { selectedId.value = null }
+
+    fun openStudy(entry: StudyBlockEntry) { selectedStudyId.value = entry.block.id }
+    fun closeStudy() { selectedStudyId.value = null }
+
+    fun markStudyDone() = withSelectedStudy { updateStudyBlock.markDone(it) }
+    fun removeStudy() = withSelectedStudy { updateStudyBlock.remove(it) }
+
+    private fun withSelectedStudy(action: suspend (com.fuerzasalvaje.senda.domain.model.StudyBlock) -> Unit) {
+        val block = state.value.selectedStudy?.block ?: return
+        selectedStudyId.value = null
+        viewModelScope.launch { action(block) }
+    }
 
     fun setStatus(evaluation: Evaluation, status: EvaluationStatus) {
         viewModelScope.launch { changeStatus(evaluation, status) }

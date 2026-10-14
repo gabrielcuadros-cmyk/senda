@@ -11,6 +11,8 @@ import com.fuerzasalvaje.senda.domain.usecase.calendar.ObserveWeekUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ChangeEvaluationStatusUseCase
 import com.fuerzasalvaje.senda.testing.FakeCourseRepository
 import com.fuerzasalvaje.senda.testing.FakeEvaluationRepository
+import com.fuerzasalvaje.senda.testing.FakeStudyBlockRepository
+import com.fuerzasalvaje.senda.domain.usecase.plan.UpdateStudyBlockUseCase
 import com.fuerzasalvaje.senda.testing.MainDispatcherRule
 import com.fuerzasalvaje.senda.testing.TEST_NOW
 import com.fuerzasalvaje.senda.testing.course
@@ -40,10 +42,13 @@ class CalendarViewModelTest {
         )
     }
 
+    private val studyBlocks = FakeStudyBlockRepository()
+
     private fun viewModel() = CalendarViewModel(
-        observeWeek = ObserveWeekUseCase(evaluations, courses, testClock),
+        observeWeek = ObserveWeekUseCase(evaluations, courses, studyBlocks, testClock),
         filterCalendar = FilterCalendarUseCase(),
         changeStatus = ChangeEvaluationStatusUseCase(evaluations),
+        updateStudyBlock = UpdateStudyBlockUseCase(studyBlocks),
         clock = testClock,
     )
 

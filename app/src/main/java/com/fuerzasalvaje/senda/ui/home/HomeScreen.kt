@@ -13,6 +13,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.EditCalendar
+import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import com.fuerzasalvaje.senda.domain.engine.CourseLoad
+import com.fuerzasalvaje.senda.ui.components.MarkdownText
+import com.fuerzasalvaje.senda.ui.components.StressCheckIn
+import kotlin.math.roundToInt
 import androidx.compose.material.icons.rounded.EventAvailable
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material3.CircularProgressIndicator
@@ -45,6 +59,7 @@ fun HomeScreen(
     onCreateCourse: () -> Unit,
     onCreateEvaluation: () -> Unit,
     onEditEvaluation: (String) -> Unit,
+    onOpenPlan: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -84,8 +99,24 @@ fun HomeScreen(
             return@LazyColumn
         }
 
+        item { StressCheckIn(selected = state.stressLevel, onSelect = viewModel::checkIn) }
         item { WeeklyProgressCard(state) }
         if (state.conflicts.isNotEmpty()) item { ConflictBanner(state.conflicts) }
+        state.criticalCourse?.let { load -> item { CriticalCourseCard(load, onOpenPlan) } }
+        item {
+            TutorTipCard(
+                state = state,
+                zone = zone,
+                onGenerate = viewModel::generateTip,
+            )
+        }
+        item {
+            OutlinedButton(onClick = onOpenPlan, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.EditCalendar, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Plan de estudio: reparte tus horas libres")
+            }
+        }
 
         item { Text("Tus prioridades", style = MaterialTheme.typography.titleLarge) }
         if (state.priorities.isEmpty()) {
@@ -160,6 +191,85 @@ private fun PriorityCard(item: PriorityItem, courseName: String?, onClick: () ->
                 modifier = Modifier.weight(1f),
             )
             DifficultyStars(evaluation.difficulty)
+        }
+        TextButton(onClick = onClick, modifier = Modifier.align(Alignment.End)) {
+            Text("Ver detalle")
+            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null)
+        }
+    }
+}
+
+@Composable
+private fun CriticalCourseCard(load: CourseLoad, onOpenPlan: () -> Unit) {
+    val hard = SendaTheme.colors.hard
+    SendaCard(Modifier.fillMaxWidth(), containerColor = hard.copy(alpha = 0.12f)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = hard)
+            Spacer(Modifier.width(8.dp))
+            Text("Curso crítico: ${load.course?.name ?: "un curso"}", style = MaterialTheme.typography.titleMedium)
+        }
+        Text(
+            "Concentra ${(load.share * 100).roundToInt()} % de tus horas de estudio esta semana " +
+                "(${Formats.hours(load.hours)}). Reparte su estudio con tiempo para no descuidarlo.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        TextButton(onClick = onOpenPlan, modifier = Modifier.align(Alignment.End)) { Text("Ver plan de estudio") }
+    }
+}
+
+@Composable
+private fun TutorTipCard(state: HomeUiState, zone: java.time.ZoneId, onGenerate: () -> Unit) {
+    SendaCard(Modifier.fillMaxWidth(), containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+            Spacer(Modifier.width(8.dp))
+            Text("Consejo de tu tutor IA", style = MaterialTheme.typography.titleMedium)
+        }
+        Spacer(Modifier.height(8.dp))
+        val tip = state.tip
+        when {
+            state.tipState.loading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(10.dp))
+                Text("Pensando en tu semana…", style = MaterialTheme.typography.bodyMedium)
+            }
+            tip != null -> {
+                MarkdownText(tip.content)
+                Text(
+                    "Generado ${Formats.dateTime(tip.createdAt, zone)}" + (tip.stressLevel?.let { " · estrés $it/5" } ?: ""),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            else -> Text(
+                "Recibe consejos según tus prioridades y cómo te sientes hoy.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        state.tipState.error?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+        }
+        if (state.stressLevel == null) {
+            Text(
+                "Haz tu check-in de estrés de hoy para activar el tutor.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+        Button(
+            onClick = onGenerate,
+            enabled = state.canGenerateTip,
+            modifier = Modifier.align(Alignment.End).padding(top = 8.dp),
+        ) {
+            Text(
+                when {
+                    state.tipState.error != null -> "Reintentar"
+                    state.tip != null -> "Generar otro consejo"
+                    else -> "Generar consejo"
+                }
+            )
         }
     }
 }

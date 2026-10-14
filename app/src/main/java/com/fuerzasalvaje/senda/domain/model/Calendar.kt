@@ -51,12 +51,22 @@ data class EvaluationFilter(
     val isActive: Boolean get() = types.isNotEmpty() || courseId != null
 }
 
+/** An accepted study block shown on the calendar (HU-14), with what it is for. */
+data class StudyBlockEntry(
+    val block: StudyBlock,
+    val evaluation: Evaluation?,
+    val course: Course?,
+) {
+    val title: String get() = evaluation?.title?.let { "Estudiar: $it" } ?: "Bloque de estudio"
+}
+
 data class WeekAgenda(
     val weekStart: LocalDate,
     val entries: List<CalendarEntry>,
     val conflicts: List<Conflict>,
     val progress: WeeklyProgress,
     val courses: List<Course>,
+    val studyBlocks: List<StudyBlockEntry> = emptyList(),
 ) {
     val days: List<LocalDate> get() = (0L until 7L).map(weekStart::plusDays)
 }

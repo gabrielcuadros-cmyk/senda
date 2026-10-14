@@ -31,6 +31,10 @@ val ExamDark = Color(0xFF3A3366)
 val LabDark = Color(0xFF214437)
 val ProjectDark = Color(0xFF1F3A57)
 
+// Accepted study blocks on the calendar
+val StudyLight = Color(0xFFFFE4D6)
+val StudyDark = Color(0xFF5A3A2C)
+
 // Difficulty (D-3)
 val DifficultyEasy = Color(0xFF3BB273)
 val DifficultyMedium = Color(0xFFF2C14E)

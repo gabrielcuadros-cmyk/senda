@@ -1,6 +1,7 @@
 package com.fuerzasalvaje.senda.domain.repository
 
 import com.fuerzasalvaje.senda.domain.model.AIRecommendation
+import com.fuerzasalvaje.senda.domain.model.Availability
 import com.fuerzasalvaje.senda.domain.model.Course
 import com.fuerzasalvaje.senda.domain.model.Evaluation
 import com.fuerzasalvaje.senda.domain.model.PomodoroSession
@@ -41,6 +42,12 @@ interface AIRecommendationRepository : OwnedRepository<AIRecommendation>
 interface PomodoroSessionRepository : OwnedRepository<PomodoroSession>
 
 interface StudyBlockRepository : OwnedRepository<StudyBlock>
+
+/** Daily study availability of the signed-in student (D-9). Emits the default until one is saved. */
+interface AvailabilityRepository {
+    fun observe(): Flow<Availability>
+    suspend fun save(availability: Availability): Result<Unit>
+}
 
 interface StressCheckInRepository : OwnedRepository<StressCheckIn> {
     fun observeForDate(date: LocalDate): Flow<StressCheckIn?> = observeById(date.toString())

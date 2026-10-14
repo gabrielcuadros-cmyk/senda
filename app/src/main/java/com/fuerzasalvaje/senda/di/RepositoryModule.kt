@@ -7,6 +7,7 @@ import com.fuerzasalvaje.senda.data.repository.AIRecommendationRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.AuthRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.CourseRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.EvaluationRepositoryImpl
+import com.fuerzasalvaje.senda.data.repository.FirestoreAvailabilityRepository
 import com.fuerzasalvaje.senda.data.repository.PomodoroSessionRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.QuestionRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.SimulacrumRepositoryImpl
@@ -15,6 +16,7 @@ import com.fuerzasalvaje.senda.data.repository.StudyBlockRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.SyncableRepository
 import com.fuerzasalvaje.senda.domain.repository.AIRecommendationRepository
 import com.fuerzasalvaje.senda.domain.repository.AuthRepository
+import com.fuerzasalvaje.senda.domain.repository.AvailabilityRepository
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
 import com.fuerzasalvaje.senda.domain.repository.DocumentStorage
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
@@ -48,6 +50,7 @@ abstract class RepositoryModule {
     @Binds abstract fun bindSessionProvider(impl: FirebaseSessionProvider): SessionProvider
     @Binds abstract fun bindAuthRepository(impl: AuthRepositoryImpl): AuthRepository
     @Binds abstract fun bindDocumentStorage(impl: LocalDocumentStorage): DocumentStorage
+    @Binds abstract fun bindAvailabilityRepository(impl: FirestoreAvailabilityRepository): AvailabilityRepository
 
     @Binds abstract fun bindCourseRepository(impl: CourseRepositoryImpl): CourseRepository
     @Binds abstract fun bindEvaluationRepository(impl: EvaluationRepositoryImpl): EvaluationRepository

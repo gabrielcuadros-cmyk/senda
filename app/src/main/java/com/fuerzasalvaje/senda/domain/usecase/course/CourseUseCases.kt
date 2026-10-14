@@ -6,7 +6,7 @@ import com.fuerzasalvaje.senda.domain.model.Course
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
 import com.fuerzasalvaje.senda.domain.repository.DocumentStorage
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
-import com.fuerzasalvaje.senda.domain.usecase.evaluation.localPdfPath
+import com.fuerzasalvaje.senda.domain.model.localPdfPath
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject

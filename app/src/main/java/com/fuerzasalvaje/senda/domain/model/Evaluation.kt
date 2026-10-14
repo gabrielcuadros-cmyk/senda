@@ -30,6 +30,22 @@ sealed interface Evaluation {
     val difficultyLevel: DifficultyLevel get() = SendaRules.difficultyLevel(difficulty)
 }
 
+/** Main date: exam start, lab deadline or the next pending project phase. */
+val Evaluation.mainDate: Instant?
+    get() = when (this) {
+        is Exam -> startAt
+        is Lab -> dueAt
+        is Project -> nextPendingPhase?.dueAt
+    }
+
+/** Local PDF of an exam (syllabus) or a lab (guide). */
+val Evaluation.localPdfPath: String?
+    get() = when (this) {
+        is Exam -> syllabusPdfPath
+        is Lab -> guidePdfPath
+        is Project -> null
+    }
+
 private fun Evaluation.checkInvariants() {
     require(difficulty in SendaRules.DIFFICULTY_RANGE) { "Difficulty must be 1 to 5" }
     require(SendaRules.isValidWeight(weightPercent)) { "Weight must be > 0 and <= 100" }

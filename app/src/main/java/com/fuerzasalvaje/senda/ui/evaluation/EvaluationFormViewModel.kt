@@ -248,8 +248,10 @@ class EvaluationFormViewModel @Inject constructor(
         val evaluation = original ?: return
         _state.update { it.copy(confirmDelete = false, saving = true) }
         viewModelScope.launch {
-            deleteEvaluation(evaluation)
-            _state.update { it.copy(saving = false, finished = true) }
+            deleteEvaluation(evaluation).fold(
+                onSuccess = { _state.update { it.copy(saving = false, finished = true) } },
+                onFailure = { _state.update { it.copy(saving = false, message = "No se pudo eliminar. Inténtalo de nuevo.") } },
+            )
         }
     }
 

@@ -1,5 +1,6 @@
 package com.fuerzasalvaje.senda.ui
 
+import com.fuerzasalvaje.senda.testing.FakeStudyBlockRepository
 import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
@@ -43,7 +44,7 @@ class EvaluationFormViewModelTest {
         observeCourses = ObserveCoursesUseCase(courses),
         observeEvaluation = ObserveEvaluationUseCase(evaluations),
         saveEvaluation = SaveEvaluationUseCase(evaluations),
-        deleteEvaluation = DeleteEvaluationUseCase(evaluations, storage),
+        deleteEvaluation = DeleteEvaluationUseCase(evaluations, storage, FakeStudyBlockRepository()),
         storage = storage,
         clock = testClock,
     )

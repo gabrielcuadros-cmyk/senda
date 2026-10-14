@@ -9,6 +9,13 @@ import java.time.Instant
 
 class DomainModelTest {
 
+    @Test
+    fun `passing grade is 10,5 on the 0 to 20 scale`() {
+        org.junit.Assert.assertEquals(10.5, SendaRules.PASSING_GRADE, 0.0)
+        org.junit.Assert.assertTrue(SendaRules.isPassing(10.5))
+        org.junit.Assert.assertFalse(SendaRules.isPassing(10.49))
+    }
+
     private val now = Instant.parse("2026-10-12T08:00:00Z")
 
     private fun project(vararg statuses: PhaseStatus) = Project(

@@ -37,6 +37,22 @@ class CriticalCourseAnalyzerTest {
     }
 
     @Test
+    fun `a single course with hours is never critical`() {
+        val evaluations = listOf(
+            exam("a", 10, courseId = "c1").copy(studyHours = 6.0),
+            exam("b", 30, courseId = "c1").copy(studyHours = 4.0),
+            // Next week: does not count, so this week only one course has hours.
+            exam("c", 8 * 24, courseId = "c2").copy(studyHours = 3.0),
+        )
+
+        val report = CriticalCourseAnalyzer.analyze(evaluations, courses, monday, TEST_ZONE)
+
+        assertEquals(1.0, report.loads.single().share, 0.0)
+        assertFalse(report.loads.single().isCritical)
+        assertTrue(report.critical.isEmpty())
+    }
+
+    @Test
     fun `exactly 40 percent is not critical`() {
         val evaluations = listOf(
             exam("a", 10, courseId = "c1").copy(studyHours = 4.0),

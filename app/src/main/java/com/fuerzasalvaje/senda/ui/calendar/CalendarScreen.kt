@@ -424,6 +424,17 @@ private fun StudyBlockDialog(
     onRemove: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var confirmRemove by remember { mutableStateOf(false) }
+    if (confirmRemove) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text("¿Quitar este bloque?") },
+            text = { Text("Se borra del calendario y se cancela su aviso. Puedes volver a pedir un plan cuando quieras.") },
+            confirmButton = { TextButton(onClick = { confirmRemove = false; onRemove() }) { Text("Quitar") } },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancelar") } },
+        )
+        return
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.AutoMirrored.Rounded.MenuBook, contentDescription = null) },
@@ -439,7 +450,7 @@ private fun StudyBlockDialog(
             if (entry.block.status != StudyBlockStatus.DONE) TextButton(onClick = onDone) { Text("Marcar como hecho") }
             else TextButton(onClick = onDismiss) { Text("Cerrar") }
         },
-        dismissButton = { TextButton(onClick = onRemove) { Text("Quitar del calendario") } },
+        dismissButton = { TextButton(onClick = { confirmRemove = true }) { Text("Quitar del calendario") } },
     )
 }
 

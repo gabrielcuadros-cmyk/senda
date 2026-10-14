@@ -7,6 +7,7 @@ import com.fuerzasalvaje.senda.domain.engine.PriorityItem
 import com.fuerzasalvaje.senda.domain.engine.ReminderPlanner
 import com.fuerzasalvaje.senda.domain.engine.StudyBlockReminder
 import com.fuerzasalvaje.senda.domain.model.CalendarEntry
+import com.fuerzasalvaje.senda.domain.model.EvaluationStatus
 import com.fuerzasalvaje.senda.domain.model.PomodoroConfig
 import com.fuerzasalvaje.senda.domain.model.ReminderSetting
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
@@ -14,6 +15,7 @@ import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
 import com.fuerzasalvaje.senda.domain.repository.PomodoroSessionRepository
 import com.fuerzasalvaje.senda.domain.repository.SettingsRepository
 import com.fuerzasalvaje.senda.domain.repository.StudyBlockRepository
+import com.fuerzasalvaje.senda.domain.repository.Ticker
 import com.fuerzasalvaje.senda.domain.usecase.calendar.ObservePrioritiesUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -83,7 +85,10 @@ class ObserveReminderPlanUseCase @Inject constructor(
                 setting = setting,
                 evaluationReminders = ReminderPlanner.evaluationReminders(entries, setting, now),
                 examRoutines = if (setting.examRoutineEnabled) ReminderPlanner.examRoutines(entries, clock.zone, now) else emptyList(),
-                studyBlockReminders = if (setting.studyBlockAlertsEnabled) ReminderPlanner.studyBlockReminders(blocks, now) else emptyList(),
+                studyBlockReminders = if (setting.studyBlockAlertsEnabled) {
+                    val completed = evaluationList.filter { it.status == EvaluationStatus.COMPLETED }.map { it.id }.toSet()
+                    ReminderPlanner.studyBlockReminders(blocks.filter { it.evaluationId !in completed }, now)
+                } else emptyList(),
                 evaluationTitles = evaluationList.associate { it.id to it.title },
             )
         }
@@ -94,9 +99,10 @@ class ObserveTodayExamRoutinesUseCase @Inject constructor(
     private val evaluations: EvaluationRepository,
     private val courses: CourseRepository,
     private val clock: Clock,
+    private val ticker: Ticker = Ticker.Never,
 ) {
     operator fun invoke(): Flow<List<ExamRoutine>> =
-        combine(evaluations.observeAll(), courses.observeAll()) { evaluationList, courseList ->
+        combine(evaluations.observeAll(), courses.observeAll(), ticker.ticks) { evaluationList, courseList, _ ->
             val today = LocalDate.now(clock)
             val startOfDay = today.atStartOfDay(clock.zone).toInstant()
             val now = clock.instant()

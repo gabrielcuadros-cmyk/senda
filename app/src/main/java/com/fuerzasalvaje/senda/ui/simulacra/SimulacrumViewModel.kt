@@ -120,9 +120,11 @@ class SimulacrumViewModel @Inject constructor(
         }
     }
 
-    fun next() = _state.update { it.copy(currentIndex = (it.currentIndex + 1).coerceAtMost(it.questions.lastIndex)) }
+    fun next() = _state.update { it.copy(currentIndex = (it.currentIndex + 1).coerceAtMost(it.questions.lastIndex).coerceAtLeast(0)) }
     fun previous() = _state.update { it.copy(currentIndex = (it.currentIndex - 1).coerceAtLeast(0)) }
-    fun goTo(index: Int) = _state.update { it.copy(currentIndex = index.coerceIn(0, it.questions.lastIndex)) }
+    fun goTo(index: Int) = _state.update {
+        if (it.questions.isEmpty()) it else it.copy(currentIndex = index.coerceIn(0, it.questions.lastIndex))
+    }
 
     /** Finishing before the time is up always asks for confirmation. */
     fun requestFinish() = _state.update { it.copy(confirmFinish = true) }

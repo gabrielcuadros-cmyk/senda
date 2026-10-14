@@ -30,6 +30,7 @@ object SendaRules {
 
     // Study time (HU-13, D-9)
     const val CRITICAL_COURSE_SHARE = 0.40
+    const val MIN_COURSES_FOR_CRITICAL = 2
     val DEFAULT_AVAILABILITY_START: LocalTime = LocalTime.of(8, 0)
     val DEFAULT_AVAILABILITY_END: LocalTime = LocalTime.of(22, 0)
     val SLEEP_START: LocalTime = LocalTime.of(23, 0)
@@ -39,6 +40,9 @@ object SendaRules {
     const val DEFAULT_SIMULACRUM_QUESTIONS = 10
     const val DEFAULT_SIMULACRUM_MINUTES = 20
     const val MAX_GRADE = 20.0
+    /** Passing grade on the 0–20 scale. */
+    const val PASSING_GRADE = 10.5
+    fun isPassing(grade: Double): Boolean = grade >= PASSING_GRADE
     val READINESS_WEIGHTS = listOf(0.5, 0.3, 0.2)
 
     // Pomodoro and wellbeing (D-13, D-15)

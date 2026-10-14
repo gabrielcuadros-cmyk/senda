@@ -65,7 +65,6 @@ import com.fuerzasalvaje.senda.ui.components.SendaCard
 import com.fuerzasalvaje.senda.ui.theme.SendaTheme
 import java.util.Locale
 
-private const val PASSING_GRADE = 10.5
 
 private fun grade(value: Double) = String.format(Locale.forLanguageTag("es-PE"), "%.1f", value)
 
@@ -88,6 +87,17 @@ fun SimulacrumResultScreen(onBack: () -> Unit, viewModel: SimulacrumResultViewMo
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             return@Scaffold
         }
+        if (state.simulacrum == null) {
+            EmptyState(
+                icon = Icons.Rounded.Insights,
+                title = "Simulacro no encontrado",
+                message = "Puede que se haya borrado junto con su curso.",
+                actionLabel = "Volver",
+                onAction = onBack,
+                modifier = Modifier.padding(padding).padding(top = 48.dp),
+            )
+            return@Scaffold
+        }
         LazyColumn(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 8.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -98,7 +108,7 @@ fun SimulacrumResultScreen(onBack: () -> Unit, viewModel: SimulacrumResultViewMo
                     Text(
                         "${grade(state.grade)} / 20",
                         style = MaterialTheme.typography.displaySmall,
-                        color = if (state.grade >= PASSING_GRADE) colors.easy else colors.hard,
+                        color = if (SendaRules.isPassing(state.grade)) colors.easy else colors.hard,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 6.dp)) {
                         Summary(Icons.Rounded.CheckCircle, colors.easy, "${state.correct} correctas")
@@ -228,7 +238,8 @@ fun ProgressScreen(onOpenResult: (String) -> Unit, viewModel: ProgressViewModel 
                         Text(progress.course.name, style = MaterialTheme.typography.titleMedium)
                         Text("${progress.readiness ?: 0} % preparado para el examen", style = MaterialTheme.typography.bodyMedium)
                         Text(
-                            "Última nota ${grade(progress.grades.last())} · ${progress.grades.size} simulacros",
+                            "Promedio ${grade(progress.grades.average())} · última nota ${grade(progress.grades.last())} · " +
+                                "${progress.grades.size} ${if (progress.grades.size == 1) "simulacro" else "simulacros"}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -253,7 +264,7 @@ fun ProgressScreen(onOpenResult: (String) -> Unit, viewModel: ProgressViewModel 
                     Text(
                         grade(value),
                         style = MaterialTheme.typography.titleLarge,
-                        color = if (value >= PASSING_GRADE) SendaTheme.colors.easy else SendaTheme.colors.hard,
+                        color = if (SendaRules.isPassing(value)) SendaTheme.colors.easy else SendaTheme.colors.hard,
                     )
                 }
             }
@@ -285,7 +296,7 @@ private fun GradesLineChart(courses: List<CourseProgress>) {
             fun y(value: Double) = size.height * (1f - value.toFloat() / max)
             fun x(index: Int) = if (maxPoints <= 1) size.width / 2 else size.width * index / (maxPoints - 1)
             listOf(0.0, 10.0, 20.0).forEach { drawLine(grid, Offset(0f, y(it)), Offset(size.width, y(it)), strokeWidth = 1f) }
-            drawLine(passing, Offset(0f, y(PASSING_GRADE)), Offset(size.width, y(PASSING_GRADE)), strokeWidth = 2f,
+            drawLine(passing, Offset(0f, y(SendaRules.PASSING_GRADE)), Offset(size.width, y(SendaRules.PASSING_GRADE)), strokeWidth = 2f,
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f)))
             courses.forEach { progress ->
                 val color = lineColors.getValue(progress.course.id)

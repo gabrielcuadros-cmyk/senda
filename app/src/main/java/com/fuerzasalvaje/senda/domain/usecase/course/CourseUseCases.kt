@@ -6,6 +6,9 @@ import com.fuerzasalvaje.senda.domain.model.Course
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
 import com.fuerzasalvaje.senda.domain.repository.DocumentStorage
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
+import com.fuerzasalvaje.senda.domain.repository.QuestionRepository
+import com.fuerzasalvaje.senda.domain.repository.SimulacrumRepository
+import com.fuerzasalvaje.senda.domain.repository.StudyBlockRepository
 import com.fuerzasalvaje.senda.domain.model.localPdfPath
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -31,17 +34,26 @@ class SaveCourseUseCase @Inject constructor(private val repository: CourseReposi
     }
 }
 
-/** Deletes a course together with its evaluations and their local PDFs. */
+/**
+ * Deletes a course together with everything that belongs to it: evaluations and their local PDFs,
+ * study blocks, the question bank and the mock exam attempts.
+ */
 class DeleteCourseUseCase @Inject constructor(
     private val courses: CourseRepository,
     private val evaluations: EvaluationRepository,
     private val storage: DocumentStorage,
+    private val studyBlocks: StudyBlockRepository,
+    private val questions: QuestionRepository,
+    private val simulacra: SimulacrumRepository,
 ) {
     suspend operator fun invoke(courseId: String): Result<Unit> {
         evaluations.observeByCourse(courseId).first().forEach { evaluation ->
             evaluation.localPdfPath?.let { storage.delete(it) }
             evaluations.delete(evaluation.id)
         }
+        studyBlocks.observeAll().first().filter { it.courseId == courseId }.forEach { studyBlocks.delete(it.id) }
+        questions.observeByCourse(courseId).first().forEach { questions.delete(it.id) }
+        simulacra.observeByCourse(courseId).first().forEach { simulacra.delete(it.id) }
         return courses.delete(courseId)
     }
 }

@@ -1,5 +1,12 @@
 package com.fuerzasalvaje.senda.domain.usecase
 
+import com.fuerzasalvaje.senda.domain.model.Simulacrum
+import com.fuerzasalvaje.senda.domain.model.Question
+import com.fuerzasalvaje.senda.domain.model.StudyBlockStatus
+import com.fuerzasalvaje.senda.domain.model.StudyBlock
+import com.fuerzasalvaje.senda.testing.FakeSimulacrumRepository
+import com.fuerzasalvaje.senda.testing.FakeQuestionRepository
+import com.fuerzasalvaje.senda.testing.FakeStudyBlockRepository
 import com.fuerzasalvaje.senda.domain.engine.ValidationException
 import com.fuerzasalvaje.senda.domain.model.ClassSlot
 import com.fuerzasalvaje.senda.domain.model.EvaluationStatus
@@ -84,10 +91,57 @@ class EvaluationUseCasesTest {
         val withPdf = exam("a", 10).copy(syllabusPdfPath = "/files/pdfs/x.pdf")
         evaluations.seed(withPdf)
 
-        DeleteEvaluationUseCase(evaluations, storage)(withPdf)
+        DeleteEvaluationUseCase(evaluations, storage, FakeStudyBlockRepository())(withPdf)
 
         assertTrue(evaluations.items.value.isEmpty())
         assertEquals(listOf("/files/pdfs/x.pdf"), storage.deleted)
+    }
+
+    @Test
+    fun `deleting an evaluation removes its study blocks`() = runTest {
+        val target = exam("a", 10)
+        evaluations.seed(target)
+        val blocks = FakeStudyBlockRepository().apply {
+            seed(
+                StudyBlock("b1", "c1", "a", TEST_NOW, TEST_NOW + Duration.ofHours(1), StudyBlockStatus.SCHEDULED),
+                StudyBlock("b2", "c1", "other", TEST_NOW, TEST_NOW + Duration.ofHours(1), StudyBlockStatus.SCHEDULED),
+            )
+        }
+
+        DeleteEvaluationUseCase(evaluations, storage, blocks)(target)
+
+        assertEquals(listOf("b2"), blocks.items.value.keys.toList())
+    }
+
+    @Test
+    fun `deleting a course removes its blocks, questions and attempts`() = runTest {
+        courses.seed(course("c1"), course("c2", "Química"))
+        evaluations.seed(exam("a", 10))
+        val blocks = FakeStudyBlockRepository().apply {
+            seed(
+                StudyBlock("b1", "c1", "a", TEST_NOW, TEST_NOW + Duration.ofHours(1), StudyBlockStatus.SCHEDULED),
+                StudyBlock("b2", "c2", null, TEST_NOW, TEST_NOW + Duration.ofHours(1), StudyBlockStatus.SCHEDULED),
+            )
+        }
+        val questions = FakeQuestionRepository().apply {
+            seed(
+                Question("q1", "c1", statement = "¿?", options = listOf("a", "b"), correctOptionIndex = 0, createdAt = TEST_NOW),
+                Question("q2", "c2", statement = "¿?", options = listOf("a", "b"), correctOptionIndex = 0, createdAt = TEST_NOW),
+            )
+        }
+        val simulacra = FakeSimulacrumRepository().apply {
+            seed(
+                Simulacrum("s1", "c1", questionIds = listOf("q1"), startedAt = TEST_NOW),
+                Simulacrum("s2", "c2", questionIds = listOf("q2"), startedAt = TEST_NOW),
+            )
+        }
+
+        DeleteCourseUseCase(courses, evaluations, storage, blocks, questions, simulacra)("c1")
+
+        assertEquals(listOf("c2"), courses.items.value.keys.toList())
+        assertEquals(listOf("b2"), blocks.items.value.keys.toList())
+        assertEquals(listOf("q2"), questions.items.value.keys.toList())
+        assertEquals(listOf("s2"), simulacra.items.value.keys.toList())
     }
 
     @Test
@@ -100,7 +154,7 @@ class EvaluationUseCasesTest {
         assertNull(courses.items.value.getValue("c1").teacher)
 
         evaluations.seed(exam("a", 10), exam("other", 10, courseId = "c2"))
-        DeleteCourseUseCase(courses, evaluations, storage)("c1")
+        DeleteCourseUseCase(courses, evaluations, storage, FakeStudyBlockRepository(), FakeQuestionRepository(), FakeSimulacrumRepository())("c1")
 
         assertTrue(courses.observeAll().first().isEmpty())
         assertEquals(listOf("other"), evaluations.items.value.keys.toList())

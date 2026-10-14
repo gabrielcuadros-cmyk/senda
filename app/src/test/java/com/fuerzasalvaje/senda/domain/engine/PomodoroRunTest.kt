@@ -66,6 +66,9 @@ class PomodoroRunTest {
         val completed = assertNotNullAndGet(settled.completed)
         assertEquals(1, completed.completedCycles)
         assertEquals(25, completed.focusedMinutes)
+        assertEquals("e1", completed.evaluationId)
+        // One record per block, covering the block itself, so overlaps with study blocks can be measured.
+        assertEquals(TEST_NOW, completed.startedAt)
         assertEquals(TEST_NOW + Duration.ofMinutes(25), completed.endedAt)
     }
 
@@ -98,6 +101,20 @@ class PomodoroRunTest {
         assertEquals(2, run.session?.completedCycles)
         assertEquals(50, run.session?.focusedMinutes)
         assertEquals(1, ids)
+    }
+
+    @Test
+    fun `every finished block is saved as its own record`() {
+        var run = PomodoroEngine.start(linked(), TEST_NOW, ::newId, config)
+        val first = PomodoroEngine.settle(run, TEST_NOW + Duration.ofMinutes(25), config)
+        run = PomodoroEngine.start(first.run, TEST_NOW + Duration.ofMinutes(25), ::newId, config)
+        run = PomodoroEngine.settle(run, TEST_NOW + Duration.ofMinutes(30), config).run
+        run = PomodoroEngine.start(run, TEST_NOW + Duration.ofMinutes(30), ::newId, config)
+        val second = PomodoroEngine.settle(run, TEST_NOW + Duration.ofMinutes(55), config)
+
+        assertEquals(listOf("s1-1", "s1-2"), listOf(first.completed?.id, second.completed?.id))
+        assertEquals(TEST_NOW + Duration.ofMinutes(30), second.completed?.startedAt)
+        assertEquals(1, second.completed?.completedCycles)
     }
 
     @Test

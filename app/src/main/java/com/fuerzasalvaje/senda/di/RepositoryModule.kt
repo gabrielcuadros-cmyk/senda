@@ -16,6 +16,7 @@ import com.fuerzasalvaje.senda.data.repository.SimulacrumRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.StressCheckInRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.StudyBlockRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.SyncableRepository
+import com.fuerzasalvaje.senda.data.sync.MinuteTicker
 import com.fuerzasalvaje.senda.domain.repository.AIRecommendationRepository
 import com.fuerzasalvaje.senda.domain.repository.AuthRepository
 import com.fuerzasalvaje.senda.domain.repository.AvailabilityRepository
@@ -29,6 +30,7 @@ import com.fuerzasalvaje.senda.domain.repository.SettingsRepository
 import com.fuerzasalvaje.senda.domain.repository.SimulacrumRepository
 import com.fuerzasalvaje.senda.domain.repository.StressCheckInRepository
 import com.fuerzasalvaje.senda.domain.repository.StudyBlockRepository
+import com.fuerzasalvaje.senda.domain.repository.Ticker
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -57,6 +59,7 @@ abstract class RepositoryModule {
     @Binds abstract fun bindAvailabilityRepository(impl: FirestoreAvailabilityRepository): AvailabilityRepository
     @Binds abstract fun bindSettingsRepository(impl: FirestoreSettingsRepository): SettingsRepository
     @Binds abstract fun bindPomodoroTimer(impl: PomodoroController): PomodoroTimer
+    @Binds abstract fun bindTicker(impl: MinuteTicker): Ticker
 
     @Binds abstract fun bindCourseRepository(impl: CourseRepositoryImpl): CourseRepository
     @Binds abstract fun bindEvaluationRepository(impl: EvaluationRepositoryImpl): EvaluationRepository

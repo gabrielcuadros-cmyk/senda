@@ -17,7 +17,7 @@ class LocalDocumentStorage @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) : DocumentStorage {
 
-    private val directory: File get() = File(context.filesDir, "pdfs").apply { mkdirs() }
+    private val directory: File get() = File(context.filesDir, DIRECTORY).apply { mkdirs() }
 
     override suspend fun importPdf(sourceUri: String): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
@@ -35,5 +35,9 @@ class LocalDocumentStorage @Inject constructor(
             // Only files created by this class can be removed.
             if (file.parentFile == directory) file.delete()
         }
+    }
+
+    companion object {
+        const val DIRECTORY = "pdfs"
     }
 }

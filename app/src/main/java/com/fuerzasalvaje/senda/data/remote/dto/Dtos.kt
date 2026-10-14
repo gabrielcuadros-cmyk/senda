@@ -14,7 +14,7 @@ import com.google.firebase.firestore.IgnoreExtraProperties
 data class UserDto(
     var name: String = "",
     var email: String = "",
-    var plan: String = "FREE",
+    var plan: String = "PREMIUM",
     var createdAt: Long = 0,
 )
 

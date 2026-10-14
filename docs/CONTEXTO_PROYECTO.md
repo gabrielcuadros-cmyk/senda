@@ -191,7 +191,7 @@ Tabla final: combina la base oficial con las decisiones del PO (sección 9). La 
 
 | Entidad | Campos | Origen |
 |---------|--------|--------|
-| Usuario | Sesión propia; `plan` = FREE o PREMIUM (solo el campo, sin funciones de pago) | D-16 |
+| Usuario | Sesión propia; `plan` = FREE o PREMIUM. Todos los usuarios son PREMIUM por la promoción de lanzamiento, también las cuentas creadas antes (se migran al iniciar sesión) | D-16, D-18 |
 | Curso | Nombre, docente (opcional), importancia, color, horario de clases semanal (día, inicio, fin, aula) | KB-01, D-9, D-13 |
 | Examen | Nombre, curso, fecha/hora de inicio, hora de fin (opcional), aula, peso (%), tipo (Parcial, Final, Caso de Estudio), temario (texto multilínea; PDF opcional) | HU-01, D-8, D-11 |
 | Laboratorio | Número de guía/práctica, nombre, curso, software/equipos requeridos, fecha límite del informe, hora de fin (opcional), modalidad (individual o en parejas/grupal), guía en PDF, peso (%) | HU-02, D-1, D-8 |
@@ -288,7 +288,8 @@ Tabla final: combina la base oficial con las decisiones del PO (sección 9). La 
 | Límite de los consejos | Nunca recomiendan amanecidas | D-15 |
 | PDFs | Copia en el almacenamiento interno de la app y ruta en Room; no se suben a la nube. Firebase Storage queda para la fase opcional | D-11 |
 | Datos del usuario | Bajo `users/{uid}/...` en Firestore | Decisión del equipo |
-| Fuera de alcance | Suscripción Premium, licencias y publicidad | D-16 |
+| Planes | Solo interfaz: pantalla "Planes" (Gratuito S/ 0 y Premium S/ 9.90 al mes, referencial) e insignia "Premium" en Inicio. Ninguna función se bloquea ni se limita por plan | D-18 |
+| Fuera de alcance | Pagos de la suscripción Premium, límites del plan Gratuito, licencias y publicidad | D-16, D-18 |
 | Excluido | Venta de información del estudiante (Ley 29733 de Protección de Datos Personales) | D-16 |
 
 ---
@@ -370,6 +371,7 @@ Respuestas del Product Owner a los vacíos de la sección 8. Complementan la bas
 | D-15 | Bienestar | Dentro del alcance, en versión ligera: Pomodoro, pausa activa cada 2 Pomodoros, recordatorio de descanso a las 22:30, rutina de 15 minutos entre exámenes seguidos y una pantalla de Bienestar con recursos de salud mental que validará el PO (sin diagnósticos). Los consejos de Gemini nunca recomiendan amanecidas. |
 | D-16 | Objetivos de negocio | Fuera de esta versión. Solo queda el campo `plan` = FREE o PREMIUM en User. La venta de información del estudiante queda excluida (Ley 29733 de Protección de Datos Personales). |
 | D-17 | Estado del proyecto | Se deriva de sus fases: Pendiente si ninguna empezó, En Proceso si alguna avanzó, Completado cuando las 3 están Entregadas. |
+| D-18 | Planes | El modelo de negocio del Lean UX se muestra solo como interfaz: pantalla "Planes" con las tarjetas Gratuito (S/ 0) y Premium (S/ 9.90 al mes, referencial). Todos los usuarios son Premium por promoción de lanzamiento. Los pagos y los límites del plan Gratuito quedan para una versión futura. |
 
 Datos del proyecto: `minSdk` 26 es correcto. Git y `.gitignore` se configuran en el siguiente paso.
 

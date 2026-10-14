@@ -8,6 +8,7 @@ import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -47,6 +48,7 @@ import com.fuerzasalvaje.senda.ui.evaluation.EvaluationFormScreen
 import com.fuerzasalvaje.senda.ui.focus.FocusScreen
 import com.fuerzasalvaje.senda.ui.home.HomeScreen
 import com.fuerzasalvaje.senda.ui.plan.StudyPlanScreen
+import com.fuerzasalvaje.senda.ui.plans.PlansScreen
 import com.fuerzasalvaje.senda.ui.settings.ReminderSettingsScreen
 import com.fuerzasalvaje.senda.ui.simulacra.ProgressScreen
 import com.fuerzasalvaje.senda.ui.simulacra.SimulacraScreen
@@ -116,6 +118,11 @@ private fun MainNavHost(onSignOut: () -> Unit) {
                 TopAppBar(
                     title = { Text(if (currentTab == Tab.HOME) "Senda" else currentTab.label) },
                     actions = {
+                        if (currentTab == Tab.HOME) {
+                            IconButton(onClick = { navController.navigate(PlansRoute) }) {
+                                Icon(Icons.Rounded.WorkspacePremium, "Planes", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
                         IconButton(onClick = { navController.navigate(ReminderSettingsRoute) }) {
                             Icon(Icons.Rounded.NotificationsNone, "Recordatorios")
                         }
@@ -159,6 +166,7 @@ private fun MainNavHost(onSignOut: () -> Unit) {
                     onCreateEvaluation = { navController.navigate(EvaluationFormRoute()) },
                     onEditEvaluation = { navController.navigate(EvaluationFormRoute(evaluationId = it)) },
                     onOpenPlan = { navController.navigate(StudyPlanRoute) },
+                    onOpenPlans = { navController.navigate(PlansRoute) },
                 )
             }
             composable<CalendarRoute> {
@@ -175,6 +183,7 @@ private fun MainNavHost(onSignOut: () -> Unit) {
                 )
             }
             composable<WellbeingRoute> { WellbeingScreen(onBack = { navController.popBackStack() }) }
+            composable<PlansRoute> { PlansScreen(onBack = { navController.popBackStack() }) }
             composable<ReminderSettingsRoute> { ReminderSettingsScreen(onBack = { navController.popBackStack() }) }
             composable<SimulacraRoute> {
                 SimulacraScreen(

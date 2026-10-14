@@ -57,7 +57,7 @@ class FirebaseGeminiService @Inject constructor(
         val names = chain.map { it.javaClass.simpleName }
         return when {
             chain.any { it is IOException } -> AiError.Network(this)
-            "QuotaExceededException" in names -> AiError.QuotaExceeded(message.orEmpty())
+            "QuotaExceededException" in names -> AiError.QuotaExceeded(message.orEmpty(), daily = isDailyQuota(message.orEmpty()))
             names.any { it in setOf("InvalidAPIKeyException", "APINotConfiguredException", "ServiceDisabledException") } ->
                 AiError.Configuration(message.orEmpty())
             names.any { it in setOf("PromptBlockedException", "ResponseStoppedException") } -> AiError.Blocked(message.orEmpty())

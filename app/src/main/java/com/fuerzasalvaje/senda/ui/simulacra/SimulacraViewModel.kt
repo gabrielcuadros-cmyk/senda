@@ -12,7 +12,7 @@ import com.fuerzasalvaje.senda.domain.usecase.course.ObserveCoursesUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.FinishSimulacrumUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.MissingSyllabusException
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.NoValidQuestionsException
-import com.fuerzasalvaje.senda.domain.model.AiError
+import com.fuerzasalvaje.senda.ui.components.aiErrorMessage
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.ObserveReadinessUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.StartSimulacrumUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -109,16 +109,9 @@ class SimulacraViewModel @Inject constructor(
     companion object {
         /** Clear Spanish message for each failure (the technical detail goes to Logcat, tag SendaAI). */
         fun errorMessage(error: Throwable): String = when (error) {
-            is AiError.Network -> "Sin conexión. Revisa tu internet e inténtalo de nuevo."
-            is AiError.Timeout -> "La IA tardó demasiado en responder. Inténtalo de nuevo."
-            is AiError.QuotaExceeded -> "Llegaste al límite de uso de Gemini. Espera unos minutos e inténtalo de nuevo."
-            is AiError.Configuration -> "La IA no está bien configurada: revisa GEMINI_API_KEY y GEMINI_MODEL en local.properties."
-            is AiError.Blocked -> "La IA no pudo usar este material por sus filtros de seguridad. Prueba con otros temas."
-            is AiError.InvalidResponse -> "La IA respondió en un formato inválido. Inténtalo otra vez."
             is NoValidQuestionsException ->
                 "La IA solo generó ${error.valid} preguntas válidas de ${error.received}. Inténtalo otra vez o detalla más el temario."
-            is AiError.Server -> "El servicio de IA falló (código ${error.code}). Inténtalo en unos minutos."
-            else -> "No pudimos generar preguntas. Inténtalo de nuevo."
+            else -> aiErrorMessage(error, default = "No pudimos generar preguntas. Inténtalo de nuevo.")
         }
     }
     fun consumeMessage() = ui.update { it.copy(message = null) }

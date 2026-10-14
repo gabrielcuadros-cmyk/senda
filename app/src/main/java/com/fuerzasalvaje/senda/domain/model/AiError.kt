@@ -8,8 +8,11 @@ sealed class AiError(message: String, cause: Throwable? = null) : Exception(mess
     /** The request took longer than the allowed time. */
     class Timeout(cause: Throwable? = null) : AiError("Timeout", cause)
 
-    /** HTTP 429 / RESOURCE_EXHAUSTED: usage limit of the Gemini plan. */
-    class QuotaExceeded(detail: String) : AiError(detail)
+    /** HTTP 429 / RESOURCE_EXHAUSTED. [daily] is true for per-day quotas, where waiting does not help. */
+    class QuotaExceeded(detail: String, val daily: Boolean = false) : AiError(detail)
+
+    /** Every model in the chain answered 429: the free tier is used up for today. */
+    class FreeLimitReached(val models: List<String>) : AiError("All models hit their quota: ${models.joinToString()}")
 
     /** Missing or invalid API key, or a model name that does not exist. */
     class Configuration(detail: String) : AiError(detail)

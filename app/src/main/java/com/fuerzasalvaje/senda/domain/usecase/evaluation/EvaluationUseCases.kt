@@ -30,8 +30,9 @@ class ObserveEvaluationsUseCase @Inject constructor(private val repository: Eval
 data class SaveOutcome(val courseWeightTotal: Double? = null)
 
 /**
- * Creates or edits an evaluation. Exceeding 100 % in the course only warns (D-4). When an exam or lab gets new
- * study material (syllabus text or PDF Markdown), questions for its course start being prepared in the background.
+ * Creates or edits an evaluation. Exceeding 100 % in the course only warns (D-4). Questions for its course are
+ * prepared in the background only when the syllabus or the PDF Markdown changed; a new date, weight or status
+ * never queues work.
  */
 class SaveEvaluationUseCase @Inject constructor(
     private val repository: EvaluationRepository,
@@ -43,7 +44,7 @@ class SaveEvaluationUseCase @Inject constructor(
         val previous = courseEvaluations.firstOrNull { it.id == evaluation.id } ?: repository.observeById(evaluation.id).first()
         return repository.save(evaluation).map {
             val material = materialKey(evaluation)
-            if (material != null && material != previous?.let(::materialKey)) prefetcher.refill(evaluation.courseId, fresh = true)
+            if (material != null && material != previous?.let(::materialKey)) prefetcher.refill(evaluation.courseId)
             SaveOutcome(Validators.courseWeightTotalIfExceeded(otherWeights, evaluation.weightPercent))
         }
     }

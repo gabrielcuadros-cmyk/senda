@@ -11,6 +11,9 @@ sealed class AiError(message: String, cause: Throwable? = null) : Exception(mess
     /** HTTP 429 / RESOURCE_EXHAUSTED. [daily] is true for per-day quotas, where waiting does not help. */
     class QuotaExceeded(detail: String, val daily: Boolean = false) : AiError(detail)
 
+    /** The daily quota ran out (429 per day): no AI call is made until local midnight. */
+    class Resting(val until: java.time.Instant? = null) : AiError("Daily Gemini quota exhausted until $until")
+
     /** Every model in the chain answered 429: the free tier is used up for today. */
     class FreeLimitReached(val models: List<String>) : AiError("All models hit their quota: ${models.joinToString()}")
 
@@ -37,9 +40,6 @@ data class QuestionRequest(
     val count: Int,
     /** Markdown of the exam and lab PDFs, made on the device; the PDFs themselves are never sent. */
     val pdfMarkdown: String = "",
-    /** Position of this batch among the parallel batches, so each one covers a different part of the syllabus. */
-    val batchIndex: Int = 0,
-    val batchCount: Int = 1,
     /** Statements already in the bank, so the model does not ask the same again. */
     val avoidStatements: List<String> = emptyList(),
 )

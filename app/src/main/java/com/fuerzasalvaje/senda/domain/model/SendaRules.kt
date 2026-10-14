@@ -46,8 +46,12 @@ object SendaRules {
     val READINESS_WEIGHTS = listOf(0.5, 0.3, 0.2)
 
     // AI question bank (HU-15)
-    const val QUESTION_BATCH_SIZE = 5
+    /** Questions generated per bank, all in one Gemini call. */
     const val QUESTION_BANK_TARGET = 15
+    /** The bank is refilled in the background only when fewer unused questions than this are left. */
+    const val LOW_BANK_UNUSED = 5
+    /** Gemini calls per day after which background work (prefetch) stops; the rest is kept for the student. */
+    const val AI_DAILY_BACKGROUND_LIMIT = 40
     /** An attempt starts at once with this many available questions; the rest arrive in the background. */
     const val MIN_QUESTIONS_TO_START = 3
     /** Questions answered right in this many recent attempts are not asked again. */

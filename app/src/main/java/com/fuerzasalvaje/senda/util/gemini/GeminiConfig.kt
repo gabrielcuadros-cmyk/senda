@@ -34,5 +34,8 @@ data class RetryPolicy(
 ) {
     companion object {
         const val CALL_TIMEOUT_MILLIS = 25_000L
+
+        /** The whole question bank (15 questions, checked by the model itself) in one call. */
+        const val BANK_TIMEOUT_MILLIS = 90_000L
     }
 }

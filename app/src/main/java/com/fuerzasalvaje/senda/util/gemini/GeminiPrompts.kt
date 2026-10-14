@@ -2,7 +2,6 @@ package com.fuerzasalvaje.senda.util.gemini
 
 import com.fuerzasalvaje.senda.domain.model.AiError
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
-import com.fuerzasalvaje.senda.domain.model.QuestionVerdict
 import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -12,15 +11,19 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 
 /** Strict JSON shape requested with responseSchema. */
-enum class ResponseSchema { QUESTIONS, REVIEW }
+enum class ResponseSchema { QUESTIONS }
 
-/** A provider-agnostic, text-only request: system instruction, user text, expected output and thinking. */
+/**
+ * A provider-agnostic, text-only request: system instruction, user text, expected output and thinking.
+ * [timeoutMillis] overrides the usual per-call limit (the whole question bank needs longer).
+ */
 data class GeminiPrompt(
     val system: String,
     val user: String,
     val expectsJson: Boolean = false,
     val schema: ResponseSchema? = null,
     val thinking: ThinkingLevel? = null,
+    val timeoutMillis: Long? = null,
 ) {
     /** Ask for the strict question schema (responseSchema). */
     val questionSchema: Boolean get() = schema == ResponseSchema.QUESTIONS
@@ -73,17 +76,15 @@ class GeminiPrompts(private val json: Json) {
     )
 
     /**
-     * One batch of questions (HU-15). Every question must come from the syllabus and the PDF Markdown, whose
-     * concrete data and cases come first and are cited by slide or page. Low thinking: speed matters, the review
-     * checks the result.
+     * The whole question bank of a course in one call (HU-15). Every question must come from the syllabus and the
+     * PDF Markdown, whose concrete data and cases come first and are cited by slide or page. There is no second
+     * review call: the model checks each question itself before returning it, with medium thinking.
      */
     fun generateQuestions(
         courseName: String,
         syllabus: String,
         count: Int,
         pdfMarkdown: String = "",
-        batchIndex: Int = 0,
-        batchCount: Int = 1,
         avoidStatements: List<String> = emptyList(),
     ): GeminiPrompt {
         val mix = QuestionMix.of(count)
@@ -92,14 +93,6 @@ class GeminiPrompts(private val json: Json) {
             user = buildString {
                 appendLine("Curso: $courseName")
                 appendMaterial(syllabus, pdfMarkdown)
-                if (batchCount > 1) {
-                    appendLine()
-                    appendLine(
-                        "Esta es la tanda ${batchIndex + 1} de $batchCount, generadas en paralelo. " +
-                            "Cubre sobre todo la parte ${batchIndex + 1} de $batchCount del material (en su orden), " +
-                            "para que las tandas no repitan temas."
-                    )
-                }
                 if (avoidStatements.isNotEmpty()) {
                     appendLine()
                     appendLine("Ya existen estas preguntas; no repitas ninguna ni hagas variantes casi iguales:")
@@ -114,42 +107,22 @@ class GeminiPrompts(private val json: Json) {
                 appendLine("5. Una sola respuesta correcta, sin ambigüedad. Varía su posición: reparte la correcta entre las opciones 0, 1, 2 y 3.")
                 appendLine("6. explanation: 2 a 4 oraciones con por qué la correcta es correcta y por qué el distractor más tentador es incorrecto. No menciones letras ni números de opción. Si la pregunta sale del contenido del PDF, termina con su fuente según la sección de donde salió: \"Fuente: diap. N\" para \"## Diapositiva N\" o \"Fuente: pág. N\" para \"## Página N\".")
                 appendLine("7. Español neutro, sin errores de ortografía, unidades del Sistema Internacional.")
+                appendLine("8. Reparte las preguntas por todo el material, en su orden, sin repetir temas ni hacer variantes casi iguales.")
+                appendLine()
+                appendLine("Antes de devolver cada pregunta, verifícala tú mismo contra el material:")
+                appendLine("- la respuesta marcada es la única correcta y coincide con los datos del material,")
+                appendLine("- el enunciado no es ambiguo y no admite otra respuesta defendible,")
+                appendLine("- ningún distractor es obvio o absurdo y las opciones tienen longitud parecida,")
+                appendLine("- la explicación justifica la respuesta y no contradice el material.")
+                appendLine("Si una pregunta no pasa la verificación, corrígela o reemplázala por otra; nunca devuelvas una pregunta dudosa.")
                 append("correctOptionIndex va de 0 a 3. scenario es null cuando la pregunta no es un caso.")
             },
             expectsJson = true,
             schema = ResponseSchema.QUESTIONS,
-            thinking = ThinkingLevel.LOW,
+            thinking = ThinkingLevel.MEDIUM,
+            timeoutMillis = RetryPolicy.BANK_TIMEOUT_MILLIS,
         )
     }
-
-    /** Second pass over a batch with the same material: approve, or return a corrected version. Medium thinking. */
-    fun reviewQuestions(
-        courseName: String,
-        syllabus: String,
-        questions: List<GeneratedQuestion>,
-        pdfMarkdown: String = "",
-    ) = GeminiPrompt(
-        system = REVIEWER_RULES,
-        user = buildString {
-            appendLine("Curso: $courseName")
-            appendMaterial(syllabus, pdfMarkdown)
-            appendLine()
-            appendLine("Revisa estas preguntas de simulacro (index empieza en 0):")
-            appendLine(json.encodeToString(questions.mapIndexed { i, q -> ReviewInputDto.of(i, q) }))
-            appendLine()
-            appendLine("Para cada pregunta devuelve verdict \"ok\" si es correcta y clara, o \"corregir\" si tiene:")
-            appendLine("- la respuesta marcada como correcta equivocada,")
-            appendLine("- más de una respuesta defendible o un enunciado ambiguo,")
-            appendLine("- un distractor obvio o absurdo, opciones de longitud muy distinta o \"todas/ninguna de las anteriores\",")
-            appendLine("- datos que contradicen el material, o una explicación que no justifica la respuesta.")
-            appendLine("Si es \"corregir\", incluye en question la versión corregida completa (4 opciones, correctOptionIndex de 0 a 3, explanation de 2 a 4 oraciones).")
-            appendLine("Si la pregunta no tiene relación con el material y no se puede arreglar, usa verdict \"descartar\".")
-            append("Incluye una entrada por cada index y un reason breve.")
-        },
-        expectsJson = true,
-        schema = ResponseSchema.REVIEW,
-        thinking = ThinkingLevel.MEDIUM,
-    )
 
     private fun StringBuilder.appendMaterial(syllabus: String, pdfMarkdown: String) {
         if (pdfMarkdown.isNotBlank()) {
@@ -172,21 +145,6 @@ class GeminiPrompts(private val json: Json) {
         items(raw, "questions").mapNotNull { element ->
             runCatching { json.decodeFromJsonElement<QuestionDto>(element).toDomain() }.getOrNull()
         }
-
-    /**
-     * Reads the review: one verdict per index. "ok" approves; "corregir" with a readable question is a correction;
-     * anything else ("descartar", or a correction that cannot be read) rejects the question.
-     */
-    fun parseReview(raw: String): List<QuestionVerdict> =
-        items(raw, "reviews").mapNotNull { element ->
-            val dto = runCatching { json.decodeFromJsonElement<ReviewDto>(element) }.getOrNull() ?: return@mapNotNull null
-            if (dto.index < 0) return@mapNotNull null
-            when (dto.verdict.trim().lowercase()) {
-                "ok", "aprobada", "aprobar" -> QuestionVerdict(dto.index, approved = true, reason = dto.reason)
-                "corregir", "corregida" -> QuestionVerdict(dto.index, approved = false, corrected = dto.question?.toDomain(), reason = dto.reason)
-                else -> QuestionVerdict(dto.index, approved = false, reason = dto.reason)
-            }
-        }.distinctBy { it.index }
 
     private fun items(raw: String, key: String): JsonArray {
         val payload = raw.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
@@ -233,29 +191,6 @@ class GeminiPrompts(private val json: Json) {
         )
     }
 
-    @Serializable
-    private data class ReviewDto(
-        val index: Int = -1,
-        val verdict: String = "",
-        val reason: String = "",
-        val question: QuestionDto? = null,
-    )
-
-    @Serializable
-    private data class ReviewInputDto(
-        val index: Int,
-        val scenario: String?,
-        val statement: String,
-        val options: List<String>,
-        val correctOptionIndex: Int,
-        val explanation: String,
-    ) {
-        companion object {
-            fun of(index: Int, q: GeneratedQuestion) =
-                ReviewInputDto(index, q.scenario, q.statement, q.options, q.correctOptionIndex, q.explanation)
-        }
-    }
-
     private companion object {
         // Business rule D-15: wellbeing first, never recommend all-nighters.
         val TUTOR_RULES = """
@@ -270,12 +205,6 @@ class GeminiPrompts(private val json: Json) {
             Escribes en español neutro, con ortografía correcta y unidades del Sistema Internacional.
             Solo usas el temario y el material que te dan; nunca inventas datos que no estén en ellos.
             Nunca recomiendes amanecidas ni estudiar entre las 23:00 y las 06:00.
-        """.trimIndent()
-
-        val REVIEWER_RULES = """
-            Eres un revisor exigente de preguntas de examen de Tecsup. Compruebas cada pregunta contra el material dado:
-            que la respuesta marcada sea la única correcta, que no haya ambigüedad y que los distractores sean plausibles.
-            Corriges en español neutro, sin errores de ortografía y con unidades del Sistema Internacional.
         """.trimIndent()
     }
 }

@@ -2,6 +2,7 @@ package com.fuerzasalvaje.senda.util.gemini
 
 import com.fuerzasalvaje.senda.domain.model.AiError
 import com.fuerzasalvaje.senda.domain.repository.AiLogger
+import com.fuerzasalvaje.senda.domain.repository.AiQuota
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.GenerativeBackend
@@ -22,7 +23,8 @@ class FirebaseGeminiService @Inject constructor(
     private val config: GeminiConfig,
     prompts: GeminiPrompts,
     logger: AiLogger,
-) : BaseGeminiService(prompts, logger, config) {
+    quota: AiQuota,
+) : BaseGeminiService(prompts, logger, config, quota) {
 
     override suspend fun send(prompt: GeminiPrompt, model: String): String {
         val model = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
@@ -31,7 +33,6 @@ class FirebaseGeminiService @Inject constructor(
                 if (prompt.expectsJson) responseMimeType = "application/json"
                 when (prompt.schema) {
                     ResponseSchema.QUESTIONS -> responseSchema = QUESTION_SCHEMA
-                    ResponseSchema.REVIEW -> responseSchema = REVIEW_SCHEMA
                     null -> Unit
                 }
                 when (val setting = Thinking.forModel(model, prompt.thinking)) {
@@ -87,7 +88,7 @@ class FirebaseGeminiService @Inject constructor(
     }
 
     private companion object {
-        fun question(nullable: Boolean = false): Schema = Schema.obj(
+        fun question(): Schema = Schema.obj(
             mapOf(
                 "scenario" to Schema.string(nullable = true),
                 "statement" to Schema.string(),
@@ -96,25 +97,9 @@ class FirebaseGeminiService @Inject constructor(
                 "explanation" to Schema.string(),
             ),
             optionalProperties = listOf("scenario"),
-            nullable = nullable,
         )
 
         val QUESTION_SCHEMA: Schema = Schema.obj(mapOf("questions" to Schema.array(question())))
 
-        val REVIEW_SCHEMA: Schema = Schema.obj(
-            mapOf(
-                "reviews" to Schema.array(
-                    Schema.obj(
-                        mapOf(
-                            "index" to Schema.integer(),
-                            "verdict" to Schema.enumeration(listOf("ok", "corregir", "descartar")),
-                            "reason" to Schema.string(),
-                            "question" to question(nullable = true),
-                        ),
-                        optionalProperties = listOf("reason", "question"),
-                    )
-                )
-            )
-        )
     }
 }

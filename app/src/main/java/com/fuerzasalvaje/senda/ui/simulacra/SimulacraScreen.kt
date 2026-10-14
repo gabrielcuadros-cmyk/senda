@@ -47,6 +47,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuerzasalvaje.senda.domain.model.Course
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.CourseMaterial
+import com.fuerzasalvaje.senda.ui.components.AI_RESTING_MESSAGE
 import com.fuerzasalvaje.senda.ui.components.EmptyState
 import com.fuerzasalvaje.senda.ui.components.SendaCard
 import com.fuerzasalvaje.senda.ui.components.SendaFilterChip
@@ -84,6 +85,13 @@ fun SimulacraScreen(
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                if (state.aiResting) {
+                    item {
+                        SendaCard(containerColor = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
+                            Text(AI_RESTING_MESSAGE, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
                 item { SettingsCard(state, viewModel) }
                 items(state.inProgress, key = { it.first.id }) { (attempt, course) ->
                     SendaCard(onClick = { onOpenSimulacrum(attempt.id) }, containerColor = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
@@ -131,7 +139,7 @@ private fun SettingsCard(state: SimulacraUiState, viewModel: SimulacraViewModel)
             MinuteOptions.forEach { SendaFilterChip("$it", state.minutes == it) { viewModel.setMinutes(it) } }
         }
         Text(
-            "Si un curso no tiene preguntas suficientes, la IA las crea desde el temario de sus exámenes.",
+            "Los simulacros salen de tus preguntas guardadas. La IA crea más desde el temario y el PDF solo cuando se están acabando.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 6.dp),
@@ -147,9 +155,11 @@ private fun PrefetchLine(item: CourseSimulacraItem) {
         PrefetchStatus.RETRYING -> "No se pudo preparar, reintentando" to SendaTheme.colors.busyDay
         PrefetchStatus.FAILED ->
             "No se pudo preparar. Revisa el temario o el PDF del curso." to SendaTheme.colors.hard
-        PrefetchStatus.IDLE ->
-            (if (item.available > 0) "${item.available} ${if (item.available == 1) "pregunta lista" else "preguntas listas"}"
-            else "Aún sin preguntas: se generan desde tu temario y PDF") to MaterialTheme.colorScheme.onSurfaceVariant
+        PrefetchStatus.IDLE -> when {
+            item.available > 0 -> "${item.available} ${if (item.available == 1) "pregunta nueva lista" else "preguntas nuevas listas"}"
+            item.questionCount > 0 -> "Repasarás tus ${item.questionCount} preguntas guardadas, primero las que fallaste"
+            else -> "Aún sin preguntas: se generan desde tu temario y PDF"
+        } to MaterialTheme.colorScheme.onSurfaceVariant
     }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
         if (item.prefetch == PrefetchStatus.PREPARING) {

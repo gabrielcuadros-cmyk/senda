@@ -4,8 +4,12 @@ import com.fuerzasalvaje.senda.domain.model.AiError
 
 const val FREE_LIMIT_MESSAGE = "Alcanzaste el límite gratuito de IA de hoy"
 
+/** Shown while the daily Gemini quota is used up: practice keeps working from the saved questions. */
+const val AI_RESTING_MESSAGE = "La IA está descansando hasta mañana. Puedes seguir practicando con tus preguntas guardadas"
+
 /** Spanish message for an AI failure. The technical detail is in Logcat (tag SendaAI). */
 fun aiErrorMessage(error: Throwable, default: String): String = when (error) {
+    is AiError.Resting -> AI_RESTING_MESSAGE
     is AiError.FreeLimitReached -> "$FREE_LIMIT_MESSAGE. Vuelve a intentarlo mañana."
     is AiError.Network -> "Sin conexión. Revisa tu internet e inténtalo de nuevo."
     is AiError.Timeout -> "La IA tardó demasiado en responder. Inténtalo de nuevo."

@@ -62,26 +62,40 @@ fun Simulacrum.toEntity(ownerUid: String) = SimulacrumEntity(
     id = id, ownerUid = ownerUid, courseId = courseId, evaluationId = evaluationId,
     questionIds = questionIds, answers = answers.map { it.toData() },
     timeLimitMinutes = timeLimitMinutes, startedAt = startedAt.toMillis(),
-    finishedAt = finishedAt?.toMillis(),
+    finishedAt = finishedAt?.toMillis(), optionOrders = encodeOptionOrders(optionOrders),
 )
 
 fun SimulacrumEntity.toDomain() = Simulacrum(
     id = id, courseId = courseId, evaluationId = evaluationId, questionIds = questionIds,
     answers = answers.map { it.toDomain() }, timeLimitMinutes = timeLimitMinutes,
     startedAt = startedAt.toInstant(), finishedAt = finishedAt?.toInstant(),
+    optionOrders = decodeOptionOrders(optionOrders),
 )
 
 fun Simulacrum.toDto() = SimulacrumDto(
     courseId = courseId, evaluationId = evaluationId, questionIds = questionIds,
     answers = answers.map { it.toData() }, timeLimitMinutes = timeLimitMinutes,
     startedAt = startedAt.toMillis(), finishedAt = finishedAt?.toMillis(),
+    optionOrders = encodeOptionOrders(optionOrders),
 )
 
 fun SimulacrumDto.toDomain(id: String) = Simulacrum(
     id = id, courseId = courseId, evaluationId = evaluationId, questionIds = questionIds,
     answers = answers.map { it.toDomain() }, timeLimitMinutes = timeLimitMinutes,
     startedAt = startedAt.toInstant(), finishedAt = finishedAt?.toInstant(),
+    optionOrders = decodeOptionOrders(optionOrders),
 )
+
+/** {"q1": [2, 0, 3, 1]} -> ["q1|2,0,3,1"] */
+fun encodeOptionOrders(orders: Map<String, List<Int>>): List<String> =
+    orders.map { (id, order) -> "$id|${order.joinToString(",")}" }
+
+/** Unreadable entries are dropped: the question then shows its stored order. */
+fun decodeOptionOrders(values: List<String>): Map<String, List<Int>> = values.mapNotNull { value ->
+    val id = value.substringBeforeLast('|', "")
+    val order = value.substringAfterLast('|').split(',').mapNotNull { it.trim().toIntOrNull() }
+    if (id.isEmpty() || order.isEmpty()) null else id to order
+}.toMap()
 
 // AIRecommendation
 

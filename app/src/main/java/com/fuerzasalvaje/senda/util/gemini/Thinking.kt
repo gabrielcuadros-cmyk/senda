@@ -1,6 +1,6 @@
 package com.fuerzasalvaje.senda.util.gemini
 
-/** How much the model may think before answering: low to generate quickly, medium to review. */
+/** How much the model may think before answering: low for short answers, medium for the question bank, which the model checks itself. */
 enum class ThinkingLevel { LOW, MEDIUM }
 
 /** What each model family accepts: Gemini 3+ takes a level, Gemini 2.5 a token budget, older models nothing. */
@@ -20,7 +20,7 @@ object Thinking {
         val minor = match.groupValues[2].toIntOrNull() ?: 0
         val pro = "pro" in name
         return when {
-            // Gemini 3 Pro only has "low" and "high"; its review uses "high".
+            // Gemini 3 Pro only has "low" and "high"; the question bank uses "high".
             major >= 3 -> ThinkingSetting.Level(
                 when (level) {
                     ThinkingLevel.LOW -> "low"

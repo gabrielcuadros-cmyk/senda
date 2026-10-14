@@ -89,12 +89,7 @@ class GeminiPromptsTest {
         assertTrue(withPdf.system.contains("Nunca recomiendes amanecidas"))
 
         assertFalse(prompts.generateQuestions("Física", "Cinemática", 10).user.contains("Contenido de los PDF"))
-        assertTrue(prompts.reviewQuestions("Física", "Cinemática", listOf(generatedQuestion()), markdown).user.contains("## Diapositiva 4"))
     }
-
-    private fun generatedQuestion() = com.fuerzasalvaje.senda.domain.model.GeneratedQuestion(
-        statement = "¿Velocidad?", options = listOf("1", "2", "3", "4"), correctOptionIndex = 0, explanation = "Porque sí.",
-    )
 
     @Test
     fun `study tips prompt includes this week's pomodoro minutes`() {
@@ -108,48 +103,19 @@ class GeminiPromptsTest {
     }
 
     @Test
-    fun `the review answer becomes one verdict per question`() {
-        val raw = """
-            {"reviews": [
-              {"index": 0, "verdict": "ok", "reason": "Correcta"},
-              {"index": 1, "verdict": "corregir", "reason": "La respuesta marcada era otra",
-               "question": {"statement": "¿Qué mide la velocidad?", "options": ["Distancia/tiempo", "Masa", "Fuerza", "Energía"],
-                            "correctOptionIndex": 0, "explanation": "Es la distancia entre el tiempo. Fuente: diap. 4"}},
-              {"index": 2, "verdict": "descartar", "reason": "Fuera del temario"},
-              {"index": 3, "verdict": "corregir"},
-              {"index": 0, "verdict": "corregir"}
-            ]}
-        """.trimIndent()
+    fun `the whole bank is one prompt that asks the model to check each question, with medium thinking and 90 s`() {
+        val generation = prompts.generateQuestions("Física", "Cinemática", 15, avoidStatements = listOf("¿Qué es la rapidez?"))
 
-        val verdicts = prompts.parseReview(raw)
-
-        assertEquals(listOf(0, 1, 2, 3), verdicts.map { it.index })
-        assertTrue(verdicts[0].approved)
-        assertFalse(verdicts[1].approved)
-        assertEquals("¿Qué mide la velocidad?", verdicts[1].corrected?.statement)
-        assertEquals(0, verdicts[1].corrected?.correctOptionIndex)
-        assertFalse(verdicts[2].approved)
-        assertNull(verdicts[2].corrected)
-        assertNull(verdicts[3].corrected) // "corregir" without a question cannot be used
-    }
-
-    @Test
-    fun `a review that is not JSON is an invalid response`() {
-        assertTrue(runCatching { prompts.parseReview("Todo bien") }.exceptionOrNull() is AiError.InvalidResponse)
-    }
-
-    @Test
-    fun `generation thinks low and the review thinks medium, with the quality rules`() {
-        val generation = prompts.generateQuestions("Física", "Cinemática", 5, batchIndex = 1, batchCount = 3, avoidStatements = listOf("¿Qué es la rapidez?"))
-        val review = prompts.reviewQuestions("Física", "Cinemática", listOf(com.fuerzasalvaje.senda.testing.generated(1)))
-
-        assertEquals(ThinkingLevel.LOW, generation.thinking)
-        assertEquals(ThinkingLevel.MEDIUM, review.thinking)
-        assertEquals(ResponseSchema.REVIEW, review.schema)
+        assertEquals(ThinkingLevel.MEDIUM, generation.thinking)
+        assertEquals(ResponseSchema.QUESTIONS, generation.schema)
+        assertEquals(RetryPolicy.BANK_TIMEOUT_MILLIS, generation.timeoutMillis)
         listOf(
-            "3 conceptuales y 2 de aplicación", "1 fácil(es), 3 media(s) y 1 difícil(es)", "Prohibido \"todas las anteriores\"",
-            "Fuente: diap. N", "tanda 2 de 3", "¿Qué es la rapidez?", "unidades del Sistema Internacional",
+            "Genera exactamente 15 preguntas", "9 conceptuales y 6 de aplicación", "Prohibido \"todas las anteriores\"",
+            "Fuente: diap. N", "¿Qué es la rapidez?", "unidades del Sistema Internacional",
+            "Antes de devolver cada pregunta, verifícala tú mismo contra el material",
+            "la respuesta marcada es la única correcta", "nunca devuelvas una pregunta dudosa",
         ).forEach { assertTrue("missing: $it", generation.user.contains(it)) }
+        assertFalse(generation.user.contains("tanda"))
     }
 
     @Test

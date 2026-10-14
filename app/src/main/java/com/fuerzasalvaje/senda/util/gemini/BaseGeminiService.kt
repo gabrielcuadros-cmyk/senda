@@ -3,24 +3,30 @@ package com.fuerzasalvaje.senda.util.gemini
 import com.fuerzasalvaje.senda.domain.model.AiError
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
 import com.fuerzasalvaje.senda.domain.model.QuestionRequest
-import com.fuerzasalvaje.senda.domain.model.QuestionVerdict
 import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
 import com.fuerzasalvaje.senda.domain.repository.AiLogger
+import com.fuerzasalvaje.senda.domain.repository.AiQuota
 import com.fuerzasalvaje.senda.domain.repository.GeminiService
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.updateAndGet
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.cancellation.CancellationException
 
-/** Shared prompt, retry and parsing flow; subclasses only implement the transport. Requests are text only. */
+/**
+ * Shared prompt, retry and parsing flow; subclasses only implement the transport. Requests are text only and every
+ * one of them is counted by [quota].
+ */
 abstract class BaseGeminiService(
     private val prompts: GeminiPrompts,
     protected val logger: AiLogger,
     private val config: GeminiConfig,
+    private val quota: AiQuota = AiQuota.None,
     private val retryPolicy: RetryPolicy = RetryPolicy(),
 ) : GeminiService {
 
@@ -40,7 +46,8 @@ abstract class BaseGeminiService(
      * Tries the main model and then each fallback in order. Every call has a [RetryPolicy.callTimeoutMillis] limit.
      * A timeout, a missing model (404), an overload (500, 503), an empty answer or any other failure moves on to
      * the next model at once; only a rate limit (429 per minute) waits and retries on the same model first.
-     * Only an invalid API key stops the chain. When every model ends with 429 the result is
+     * An invalid API key stops the chain, and so does a daily quota (429 per day): it is never retried, the AI
+     * rests until midnight and the result is [AiError.Resting]. When every model ends with 429 the result is
      * [AiError.FreeLimitReached]; otherwise the last error.
      */
     private suspend fun generateText(prompt: GeminiPrompt): String {
@@ -62,6 +69,10 @@ abstract class BaseGeminiService(
                 try {
                     return sendWithRetries(prompt, model, markRetrying)
                 } catch (e: AiError) {
+                    if (e.isDailyQuota()) {
+                        quota.onDailyQuotaExhausted()
+                        throw AiError.Resting()
+                    }
                     if (e.stopsChain()) throw e
                     failures += e
                 }
@@ -76,14 +87,20 @@ abstract class BaseGeminiService(
         }
     }
 
-    /** One call with the time limit; a timeout becomes [AiError.Timeout] so the chain moves on. */
+    /**
+     * One call with the time limit; a timeout becomes [AiError.Timeout] so the chain moves on. The call is counted
+     * whatever its result, and none is made while the AI rests.
+     */
     private suspend fun sendOnce(prompt: GeminiPrompt, model: String): String {
-        val limit = retryPolicy.callTimeoutMillis
+        quota.beforeCall()
+        val limit = prompt.timeoutMillis ?: retryPolicy.callTimeoutMillis
         return try {
             withTimeout(limit) { send(prompt, model) }
         } catch (e: TimeoutCancellationException) {
             logger.warn("Gemini timeout after ${limit / 1000} s (model=$model)")
             throw AiError.Timeout(e)
+        } finally {
+            withContext(NonCancellable) { quota.afterCall() }
         }
     }
 
@@ -117,7 +134,7 @@ abstract class BaseGeminiService(
     /** 429 per minute: waiting on the same model helps. A daily quota does not. */
     private fun AiError.isRateLimit(): Boolean = this is AiError.QuotaExceeded && !daily
 
-    private fun AiError.stopsChain(): Boolean = this is AiError.Configuration && invalidKey
+    private fun AiError.stopsChain(): Boolean = (this is AiError.Configuration && invalidKey) || this is AiError.Resting
 
     private fun AiError.isDailyQuota(): Boolean = this is AiError.QuotaExceeded && daily
 
@@ -142,27 +159,19 @@ abstract class BaseGeminiService(
         generateText(prompts.studyTips(request))
     }
 
-    /** One batch with the strict question schema; one more call when the answer is not valid JSON. Text only. */
+    /** The whole bank in one call with the strict question schema; one more call only when the JSON is not valid. */
     override suspend fun generateQuestions(request: QuestionRequest): Result<List<GeneratedQuestion>> = runSafely {
         require(request.count > 0) { "count must be positive" }
         require(request.syllabus.isNotBlank() || request.pdfMarkdown.isNotBlank()) { "Nothing to generate from" }
         val prompt = prompts.generateQuestions(
-            request.courseName, request.syllabus, request.count, request.pdfMarkdown,
-            request.batchIndex, request.batchCount, request.avoidStatements,
+            request.courseName, request.syllabus, request.count, request.pdfMarkdown, request.avoidStatements,
         )
         logger.info(
-            "Questions requested=${request.count} batch=${request.batchIndex + 1}/${request.batchCount} " +
+            "Questions requested=${request.count} in one call " +
                 "syllabusChars=${request.syllabus.length} pdfChars=${request.pdfMarkdown.length} sentChars=${prompt.user.length}"
         )
         parsed(prompt, "Questions") { prompts.parseQuestions(it) }
     }
-
-    override suspend fun reviewQuestions(request: QuestionRequest, questions: List<GeneratedQuestion>): Result<List<QuestionVerdict>> =
-        runSafely {
-            if (questions.isEmpty()) return@runSafely emptyList()
-            val prompt = prompts.reviewQuestions(request.courseName, request.syllabus, questions, request.pdfMarkdown)
-            parsed(prompt, "Review") { prompts.parseReview(it) }
-        }
 
     private suspend fun <T> parsed(prompt: GeminiPrompt, label: String, parse: (String) -> List<T>): List<T> {
         var lastError: AiError.InvalidResponse? = null

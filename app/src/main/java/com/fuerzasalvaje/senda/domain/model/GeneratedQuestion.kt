@@ -13,12 +13,3 @@ data class GeneratedQuestion(
 ) {
     val isCase: Boolean get() = scenario != null
 }
-
-/** Second-pass AI review of one generated question: approved as is, or [corrected]. */
-data class QuestionVerdict(
-    val index: Int,
-    val approved: Boolean,
-    /** Fixed version when the reviewer found a wrong answer, an ambiguity or an obvious distractor. */
-    val corrected: GeneratedQuestion? = null,
-    val reason: String = "",
-)

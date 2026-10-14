@@ -5,6 +5,9 @@ import com.fuerzasalvaje.senda.domain.model.ClassSlot
 import com.fuerzasalvaje.senda.domain.model.StudyBlock
 import com.fuerzasalvaje.senda.domain.model.StudyBlockStatus
 import com.fuerzasalvaje.senda.domain.usecase.plan.AcceptStudyBlocksUseCase
+import com.fuerzasalvaje.senda.domain.usecase.plan.RemoveSuggestedStudyBlocksUseCase
+import com.fuerzasalvaje.senda.domain.model.StudyBlockEntry
+import kotlinx.coroutines.flow.first
 import com.fuerzasalvaje.senda.domain.usecase.plan.SuggestStudyBlocksUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.pendingStudyMinutes
 import com.fuerzasalvaje.senda.domain.usecase.plan.StudyProgress
@@ -160,4 +163,32 @@ class PlanUseCasesTest {
 
     private fun at(day: Long, hour: Int, minute: Int = 0) =
         LocalDate.of(2026, 10, 12).plusDays(day).atTime(hour, minute).atZone(TEST_ZONE).toInstant()
+
+    @Test
+    fun `removing all suggested blocks keeps the ones already done`() = runTest {
+        blocks.seed(
+            StudyBlock("s1", "c1", "e", at(0, 10), at(0, 10, 50), StudyBlockStatus.SCHEDULED),
+            StudyBlock("s2", "c1", "e", at(1, 10), at(1, 10, 50), StudyBlockStatus.SCHEDULED),
+            StudyBlock("d1", "c1", "e", at(0, 8), at(0, 8, 50), StudyBlockStatus.DONE),
+        )
+        val remove = RemoveSuggestedStudyBlocksUseCase(blocks)
+        assertEquals(2, remove.pendingCount().first())
+
+        assertEquals(2, remove().getOrThrow())
+        assertEquals(setOf("d1"), blocks.items.value.keys)
+        assertEquals(0, remove.pendingCount().first())
+    }
+
+    @Test
+    fun `a study block reads as study, not as an evaluation`() {
+        val block = StudyBlock("b", "c1", "e", at(0, 10), at(0, 10, 50), StudyBlockStatus.SCHEDULED)
+        val entry = StudyBlockEntry(block, exam("e", inHours = 50).copy(title = "Parcial de Física"), null)
+
+        assertEquals("Estudiar: Parcial de Física", entry.title)
+        assertEquals(
+            "Bloque de estudio sugerido para Parcial de Física. Puedes marcarlo como hecho o quitarlo.",
+            entry.explanation,
+        )
+        assertEquals("Bloque de estudio", StudyBlockEntry(block, null, null).title)
+    }
 }

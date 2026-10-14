@@ -17,8 +17,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.EventAvailable
 import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,12 +34,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -86,6 +92,7 @@ fun StudyPlanScreen(onBack: () -> Unit, viewModel: StudyPlanViewModel = hiltView
             PendingStudySection(state)
             AvailabilitySection(state, viewModel)
             ProposalSection(state, viewModel.zone, viewModel)
+            ScheduledBlocksSection(state.scheduledBlocks, viewModel::removeAllSuggested)
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -202,7 +209,8 @@ private fun ProposalSection(state: StudyPlanUiState, zone: ZoneId, viewModel: St
             Text("Bloques sugeridos", style = MaterialTheme.typography.titleMedium)
         }
         Text(
-            "Bloques de 50 min con 10 min de pausa, de mayor a menor prioridad, máximo 6 h por día.",
+            "Bloques de 50 min con 10 min de pausa, de mayor a menor prioridad. Máximo 6 h por día y 3 h por " +
+                "evaluación; tras 2 bloques seguidos, al menos 1 h libre.",
             style = MaterialTheme.typography.bodySmall,
         )
         Spacer(Modifier.height(10.dp))
@@ -258,6 +266,41 @@ private fun ProposalSection(state: StudyPlanUiState, zone: ZoneId, viewModel: St
             }
         } else if (blocks != null) {
             OutlinedButton(onClick = viewModel::suggest, modifier = Modifier.fillMaxWidth()) { Text("Volver a calcular") }
+        }
+    }
+}
+
+/** Accepted blocks still pending can all be removed at once, after confirming. */
+@Composable
+private fun ScheduledBlocksSection(count: Int, onRemoveAll: () -> Unit) {
+    if (count == 0) return
+    var confirm by rememberSaveable { mutableStateOf(false) }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            icon = { Icon(Icons.Rounded.DeleteSweep, contentDescription = null) },
+            title = { Text("¿Quitar todos los bloques sugeridos?") },
+            text = {
+                Text(
+                    "Se quitarán $count ${if (count == 1) "bloque" else "bloques"} de tu calendario y sus avisos. " +
+                        "Los bloques marcados como hechos se conservan.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirm = false; onRemoveAll() }) { Text("Quitar todos") } },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancelar") } },
+        )
+    }
+    SendaCard(Modifier.fillMaxWidth()) {
+        Text("Bloques en tu calendario", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Tienes $count ${if (count == 1) "bloque agendado" else "bloques agendados"} sin marcar como hechos.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(onClick = { confirm = true }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Quitar todos los bloques sugeridos")
         }
     }
 }

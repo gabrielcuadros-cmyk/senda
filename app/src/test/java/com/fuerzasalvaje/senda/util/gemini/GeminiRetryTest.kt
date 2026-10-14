@@ -78,18 +78,18 @@ class GeminiRetryTest {
     }
 
     @Test
-    fun `a per-minute 429 is retried on the same model before moving on`() = runTest {
+    fun `a per-minute 429 is retried once on the same model before moving on`() = runTest {
         val service = ChainService(
             script = mapOf(
-                "main" to times(4, ::rate),
+                "main" to times(2, ::rate),
                 "fb-1" to listOf(AiError.Server(500, "internal")),
                 "fb-2" to listOf("Desde fb-2"),
             ),
         )
 
         assertEquals("Desde fb-2", service.studyTips(tips).getOrThrow())
-        assertEquals(List(4) { "main" } + "fb-1" + "fb-2", service.calls)
-        assertEquals(17_000, currentTime) // 2 + 5 + 10 s of waits on main only
+        assertEquals(List(2) { "main" } + "fb-1" + "fb-2", service.calls)
+        assertEquals(10_000, currentTime) // one 10 s wait on main only
         assertTrue(logger.lines.any { it.contains("Switching to fallback model fb-1 (1/2)") })
         assertTrue(logger.lines.any { it.contains("Switching to fallback model fb-2 (2/2)") })
     }
@@ -110,7 +110,7 @@ class GeminiRetryTest {
     @Test
     fun `when every model ends with a per-minute 429 the free limit is reached`() = runTest {
         val service = ChainService(
-            script = mapOf("main" to times(4, ::rate), "fb-1" to times(4, ::rate), "fb-2" to times(4, ::rate)),
+            script = mapOf("main" to times(2, ::rate), "fb-1" to times(2, ::rate), "fb-2" to times(2, ::rate)),
         )
 
         val error = service.studyTips(tips).exceptionOrNull()
@@ -125,13 +125,13 @@ class GeminiRetryTest {
     fun `if the last model fails with 503 that error is reported, not the free limit`() = runTest {
         val service = ChainService(
             fallbacks = listOf("fb-1"),
-            script = mapOf("main" to times(4, ::rate), "fb-1" to listOf(busy())),
+            script = mapOf("main" to times(2, ::rate), "fb-1" to listOf(busy())),
         )
 
         val error = service.studyTips(tips).exceptionOrNull()
 
         assertTrue(error is AiError.Server && error.code == 503)
-        assertEquals(5, service.calls.size)
+        assertEquals(3, service.calls.size)
     }
 
     @Test

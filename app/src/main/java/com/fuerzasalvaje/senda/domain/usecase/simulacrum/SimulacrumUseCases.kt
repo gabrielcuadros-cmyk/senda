@@ -1,152 +1,72 @@
 package com.fuerzasalvaje.senda.domain.usecase.simulacrum
 
-import com.fuerzasalvaje.senda.domain.engine.QuestionValidator
 import com.fuerzasalvaje.senda.domain.engine.ReadinessCalculator
 import com.fuerzasalvaje.senda.domain.engine.SimulacrumScoring
 import com.fuerzasalvaje.senda.domain.engine.SimulacrumTimer
 import com.fuerzasalvaje.senda.domain.model.AIRecommendation
-import com.fuerzasalvaje.senda.domain.model.Exam
-import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
-import com.fuerzasalvaje.senda.domain.model.QuestionRequest
 import com.fuerzasalvaje.senda.domain.model.Question
-import com.fuerzasalvaje.senda.domain.model.QuestionSource
 import com.fuerzasalvaje.senda.domain.model.RecommendationType
 import com.fuerzasalvaje.senda.domain.model.SendaRules
 import com.fuerzasalvaje.senda.domain.model.Simulacrum
 import com.fuerzasalvaje.senda.domain.repository.AIRecommendationRepository
-import com.fuerzasalvaje.senda.domain.repository.AiLogger
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
-import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
 import com.fuerzasalvaje.senda.domain.repository.GeminiService
 import com.fuerzasalvaje.senda.domain.repository.QuestionRepository
+import com.fuerzasalvaje.senda.domain.repository.QuestionPrefetcher
 import com.fuerzasalvaje.senda.domain.repository.SimulacrumRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.withLock
 import java.time.Clock
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.random.Random
 
-/** The syllabus is missing or too short and there is no PDF: the student must write the topics. */
-class MissingSyllabusException : IllegalStateException("The course has no usable syllabus or PDF")
-
-/** Gemini answered, but fewer than [PrepareQuestionsUseCase.MIN_VALID_QUESTIONS] questions were valid. */
-class NoValidQuestionsException(val received: Int, val valid: Int) :
-    IllegalStateException("Only $valid of $received generated questions were valid")
-
-/** What the AI can study from: the exams' syllabus text and their local PDFs (D-11). */
-data class CourseMaterial(val text: String, val syllabusChars: Int, val pdfPaths: List<String>) {
-    /** Too little to generate meaningful questions (fewer than 15 characters and no PDF). */
-    val isInsufficient: Boolean get() = syllabusChars < MIN_SYLLABUS_CHARS && pdfPaths.isEmpty()
-
-    companion object {
-        const val MIN_SYLLABUS_CHARS = 15
-    }
-}
-
-class CourseMaterialUseCase @Inject constructor(private val evaluations: EvaluationRepository) {
-    suspend operator fun invoke(courseId: String): CourseMaterial {
-        val exams = evaluations.observeByCourse(courseId).first().filterIsInstance<Exam>()
-        val withSyllabus = exams.filter { it.syllabus.isNotBlank() }
-        return CourseMaterial(
-            text = withSyllabus.joinToString("\n") { "${it.title}: ${it.syllabus.trim()}" },
-            syllabusChars = withSyllabus.sumOf { it.syllabus.trim().length },
-            pdfPaths = exams.mapNotNull { it.syllabusPdfPath },
-        )
-    }
-}
-
 /**
- * HU-15: makes sure the course has at least [count] questions. When it does not, Gemini creates
- * them from the exams' PDFs and syllabus (or from [topics] typed by the student). Only valid
- * questions are stored, and at least [MIN_VALID_QUESTIONS] are required.
+ * HU-15: creates an attempt and starts its clock now, without waiting for Gemini when the bank has enough.
+ * With at least [SendaRules.MIN_QUESTIONS_TO_START] available questions it starts with them and the rest are
+ * added in the background as they arrive; with fewer, the missing ones are generated first. Every attempt
+ * also refills the bank for the next one.
  */
-class PrepareQuestionsUseCase @Inject constructor(
-    private val questions: QuestionRepository,
-    private val courses: CourseRepository,
-    private val material: CourseMaterialUseCase,
-    private val gemini: GeminiService,
-    private val logger: AiLogger,
-    private val clock: Clock,
-) {
-    suspend operator fun invoke(courseId: String, count: Int, topics: String? = null): Result<List<Question>> {
-        val existing = questions.observeByCourse(courseId).first()
-        if (existing.size >= count) return Result.success(existing)
-
-        val courseMaterial = material(courseId)
-        val typed = topics?.trim().orEmpty()
-        if (typed.length < CourseMaterial.MIN_SYLLABUS_CHARS && courseMaterial.isInsufficient) {
-            return Result.failure(MissingSyllabusException())
-        }
-        val text = if (typed.isNotEmpty()) typed else courseMaterial.text
-
-        val courseName = courses.observeById(courseId).firstOrNull()?.name.orEmpty()
-        val toGenerate = maxOf(SendaRules.DEFAULT_SIMULACRUM_QUESTIONS, count - existing.size)
-        val request = QuestionRequest(courseName, text, toGenerate, courseMaterial.pdfPaths)
-        return gemini.generateQuestions(request).mapCatching { generated ->
-            val valid = generated.filter(QuestionValidator::isValid)
-            logValidation(generated, valid.size)
-            if (valid.size < MIN_VALID_QUESTIONS) throw NoValidQuestionsException(generated.size, valid.size)
-            val created = valid.map {
-                Question(
-                    id = UUID.randomUUID().toString(),
-                    courseId = courseId,
-                    statement = it.statement.trim(),
-                    scenario = it.scenario,
-                    options = it.options.map(String::trim),
-                    correctOptionIndex = it.correctOptionIndex,
-                    explanation = it.explanation.trim(),
-                    source = QuestionSource.AI,
-                    createdAt = clock.instant(),
-                )
-            }
-            created.forEach { questions.save(it).getOrThrow() }
-            existing + created
-        }
-    }
-
-    private fun logValidation(generated: List<GeneratedQuestion>, valid: Int) {
-        logger.info("Validation: received=${generated.size} valid=$valid discarded=${generated.size - valid}")
-        generated.forEachIndexed { index, question ->
-            val problems = QuestionValidator.problems(question)
-            if (problems.isNotEmpty()) logger.warn("Discarded question #${index + 1}: ${problems.joinToString(", ")}")
-        }
-    }
-
-    companion object {
-        /** Fewer valid questions than requested are accepted, as long as there are at least 3. */
-        const val MIN_VALID_QUESTIONS = 3
-    }
-}
-
-/** HU-15: creates an attempt with up to [questionCount] questions and starts its clock now. */
 class StartSimulacrumUseCase(
+    private val bank: QuestionBankUseCase,
     private val prepare: PrepareQuestionsUseCase,
     private val simulacra: SimulacrumRepository,
+    private val prefetcher: QuestionPrefetcher,
     private val clock: Clock,
     /** Tests pass a seeded generator to make the question order predictable. */
     private val random: Random,
 ) {
-    @Inject constructor(prepare: PrepareQuestionsUseCase, simulacra: SimulacrumRepository, clock: Clock) :
-        this(prepare, simulacra, clock, Random.Default)
+    @Inject constructor(
+        bank: QuestionBankUseCase,
+        prepare: PrepareQuestionsUseCase,
+        simulacra: SimulacrumRepository,
+        prefetcher: QuestionPrefetcher,
+        clock: Clock,
+    ) : this(bank, prepare, simulacra, prefetcher, clock, Random.Default)
 
     suspend operator fun invoke(
         courseId: String,
         questionCount: Int = SendaRules.DEFAULT_SIMULACRUM_QUESTIONS,
         minutes: Int = SendaRules.DEFAULT_SIMULACRUM_MINUTES,
         topics: String? = null,
-    ): Result<Simulacrum> = prepare(courseId, questionCount, topics).mapCatching { bank ->
+    ): Result<Simulacrum> = safely {
+        val available = bank.available(courseId)
+        val pool = if (available.size >= SendaRules.MIN_QUESTIONS_TO_START) available else prepare(courseId, questionCount, topics).getOrThrow()
+        val chosen = pool.shuffled(random).take(questionCount)
         val simulacrum = Simulacrum(
             id = UUID.randomUUID().toString(),
             courseId = courseId,
-            questionIds = bank.shuffled(random).take(questionCount).map { it.id },
+            questionIds = chosen.map { it.id },
             timeLimitMinutes = minutes,
             startedAt = clock.instant(),
         )
         simulacra.save(simulacrum).getOrThrow()
+        if (chosen.size < questionCount) prefetcher.topUp(courseId, simulacrum.id, questionCount, topics)
+        prefetcher.refill(courseId, topics = topics)
         simulacrum
     }
 }
@@ -173,7 +93,10 @@ class AnswerQuestionUseCase @Inject constructor(private val simulacra: Simulacru
     fun apply(simulacrum: Simulacrum, question: Question, optionIndex: Int?): Simulacrum =
         SimulacrumScoring.answer(simulacrum, question, optionIndex)
 
-    suspend fun persist(simulacrum: Simulacrum): Result<Unit> = simulacra.save(simulacrum)
+    /** Keeps question ids appended in the background while the student was answering. */
+    suspend fun persist(simulacrum: Simulacrum): Result<Unit> = SimulacrumWrites.mutex.withLock {
+        simulacra.save(SimulacrumWrites.merge(simulacrum, simulacra.observeById(simulacrum.id).firstOrNull()))
+    }
 }
 
 class FinishSimulacrumUseCase @Inject constructor(
@@ -182,8 +105,11 @@ class FinishSimulacrumUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(simulacrum: Simulacrum): Result<Simulacrum> {
         if (simulacrum.isFinished) return Result.success(simulacrum)
-        val finished = SimulacrumScoring.finish(simulacrum, clock.instant())
-        return simulacra.save(finished).map { finished }
+        return SimulacrumWrites.mutex.withLock {
+            val merged = SimulacrumWrites.merge(simulacrum, simulacra.observeById(simulacrum.id).firstOrNull())
+            val finished = SimulacrumScoring.finish(merged, clock.instant())
+            simulacra.save(finished).map { finished }
+        }
     }
 
     /** Attempts whose time ran out while the app was closed are submitted with what was answered. */

@@ -15,6 +15,7 @@ import com.fuerzasalvaje.senda.data.remote.dto.StudyBlockDto
 import com.fuerzasalvaje.senda.domain.model.AIRecommendation
 import com.fuerzasalvaje.senda.domain.model.PomodoroSession
 import com.fuerzasalvaje.senda.domain.model.Question
+import com.fuerzasalvaje.senda.domain.model.QuestionReport
 import com.fuerzasalvaje.senda.domain.model.QuestionSource
 import com.fuerzasalvaje.senda.domain.model.RecommendationType
 import com.fuerzasalvaje.senda.domain.model.Simulacrum
@@ -29,7 +30,7 @@ fun Question.toEntity(ownerUid: String) = QuestionEntity(
     id = id, ownerUid = ownerUid, courseId = courseId, evaluationId = evaluationId,
     statement = statement, scenario = scenario, options = options,
     correctOptionIndex = correctOptionIndex, explanation = explanation,
-    source = source.name, createdAt = createdAt.toMillis(),
+    source = source.name, createdAt = createdAt.toMillis(), reportReason = reportReason?.name,
 )
 
 fun QuestionEntity.toDomain() = Question(
@@ -37,20 +38,23 @@ fun QuestionEntity.toDomain() = Question(
     statement = statement, scenario = scenario, options = options,
     correctOptionIndex = correctOptionIndex, explanation = explanation,
     source = enumOrDefault(source, QuestionSource.AI), createdAt = createdAt.toInstant(),
+    reportReason = reportReason.toReport(),
 )
 
 fun Question.toDto() = QuestionDto(
     courseId = courseId, evaluationId = evaluationId, statement = statement, scenario = scenario,
     options = options, correctOptionIndex = correctOptionIndex, explanation = explanation,
-    source = source.name, createdAt = createdAt.toMillis(),
+    source = source.name, createdAt = createdAt.toMillis(), reportReason = reportReason?.name,
 )
 
 fun QuestionDto.toDomain(id: String) = Question(
     id = id, courseId = courseId, evaluationId = evaluationId, statement = statement,
     scenario = scenario, options = options, correctOptionIndex = correctOptionIndex,
     explanation = explanation, source = enumOrDefault(source, QuestionSource.AI),
-    createdAt = createdAt.toInstant(),
+    createdAt = createdAt.toInstant(), reportReason = reportReason.toReport(),
 )
+
+private fun String?.toReport(): QuestionReport? = this?.let { name -> QuestionReport.entries.firstOrNull { it.name == name } }
 
 // Simulacrum
 

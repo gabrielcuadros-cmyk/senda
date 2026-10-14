@@ -1,5 +1,7 @@
 package com.fuerzasalvaje.senda.ui.simulacra
 
+import com.fuerzasalvaje.senda.domain.usecase.simulacrum.ReportQuestionUseCase
+import com.fuerzasalvaje.senda.domain.model.QuestionReport
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -40,6 +42,9 @@ data class ResultsUiState(
     /** Question shown in the AI explanation sheet. */
     val explaining: ResultItem? = null,
     val explanations: Map<String, ExplanationState> = emptyMap(),
+    /** Question whose report dialog is open. */
+    val reporting: ResultItem? = null,
+    val message: String? = null,
 ) {
     val correct: Int get() = items.count { it.outcome == AnswerOutcome.CORRECT }
     val incorrect: Int get() = items.count { it.outcome == AnswerOutcome.INCORRECT }
@@ -53,15 +58,26 @@ class SimulacrumResultViewModel @Inject constructor(
     observeSimulacrum: ObserveSimulacrumUseCase,
     observeCourses: ObserveCoursesUseCase,
     private val explainMistake: ExplainMistakeUseCase,
+    private val reportQuestion: ReportQuestionUseCase,
 ) : ViewModel() {
 
     private val simulacrumId: String = requireNotNull(savedStateHandle.get<String>("simulacrumId"))
     private val explaining = MutableStateFlow<String?>(null)
     private val explanations = MutableStateFlow<Map<String, ExplanationState>>(emptyMap())
+    private val reporting = MutableStateFlow<String?>(null)
+    private val message = MutableStateFlow<String?>(null)
+    private val dialogs = combine(explaining, explanations, reporting, message) { e, x, r, m -> Dialogs(e, x, r, m) }
+
+    private data class Dialogs(
+        val explainingId: String?,
+        val explained: Map<String, ExplanationState>,
+        val reportingId: String?,
+        val message: String?,
+    )
 
     val state: StateFlow<ResultsUiState> = combine(
-        observeSimulacrum(simulacrumId), observeCourses(), explaining, explanations,
-    ) { session, courses, explainingId, explained ->
+        observeSimulacrum(simulacrumId), observeCourses(), dialogs,
+    ) { session, courses, (explainingId, explained, reportingId, notice) ->
         if (session == null) return@combine ResultsUiState(loading = false)
         val answers = session.simulacrum.answers.associateBy { it.questionId }
         val items = session.questions.mapIndexed { index, question ->
@@ -81,6 +97,8 @@ class SimulacrumResultViewModel @Inject constructor(
             items = items,
             explaining = items.firstOrNull { it.question.id == explainingId },
             explanations = explained,
+            reporting = items.firstOrNull { it.question.id == reportingId },
+            message = notice,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ResultsUiState())
 
@@ -102,6 +120,22 @@ class SimulacrumResultViewModel @Inject constructor(
     }
 
     fun closeExplanation() { explaining.value = null }
+
+    fun openReport(item: ResultItem) { reporting.value = item.question.id }
+    fun closeReport() { reporting.value = null }
+
+    /** The question leaves the bank and a replacement is generated in the background. */
+    fun report(item: ResultItem, reason: QuestionReport) {
+        reporting.value = null
+        viewModelScope.launch {
+            reportQuestion(item.question, reason).fold(
+                onSuccess = { message.value = "Gracias. Quitamos esta pregunta del banco y prepararemos otra." },
+                onFailure = { message.value = "No se pudo reportar la pregunta. Inténtalo de nuevo." },
+            )
+        }
+    }
+
+    fun consumeMessage() { message.value = null }
 
     companion object {
         const val EXPLAIN_ERROR = "No pudimos obtener la explicación. Revisa tu conexión e inténtalo de nuevo."

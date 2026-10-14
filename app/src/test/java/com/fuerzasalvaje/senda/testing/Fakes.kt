@@ -1,5 +1,8 @@
 package com.fuerzasalvaje.senda.testing
 
+import com.fuerzasalvaje.senda.domain.repository.QuestionPrefetcher
+import com.fuerzasalvaje.senda.domain.repository.PrefetchStatus
+import com.fuerzasalvaje.senda.domain.model.QuestionVerdict
 import com.fuerzasalvaje.senda.domain.model.AIRecommendation
 import com.fuerzasalvaje.senda.domain.model.Availability
 import com.fuerzasalvaje.senda.domain.model.Course
@@ -111,8 +114,22 @@ class FakeAuthRepository(user: User? = User("u1", "Ana Torres", "ana@tecsup.edu.
     override fun observeSession(): Flow<User?> = session
 }
 
-/** Returns [tipsResult]; records the last request so tests can check what was sent. */
+/**
+ * Returns [tipsResult]; records the last request so tests can check what was sent. Questions come from
+ * [questionsFor] when set (per batch), otherwise [questionsResult]; the review approves everything unless
+ * [reviewFor] says otherwise.
+ */
 class FakeGeminiService(var tipsResult: Result<String> = Result.success("- Estudia **Física** primero")) : GeminiService {
+    var questionsFor: ((QuestionRequest) -> Result<List<GeneratedQuestion>>)? = null
+    var reviewFor: (QuestionRequest, List<GeneratedQuestion>) -> Result<List<QuestionVerdict>> =
+        { _, questions -> Result.success(questions.indices.map { QuestionVerdict(it, approved = true) }) }
+    val requests = java.util.Collections.synchronizedList(mutableListOf<QuestionRequest>())
+    var reviewCalls = 0
+
+    override suspend fun reviewQuestions(request: QuestionRequest, questions: List<GeneratedQuestion>): Result<List<QuestionVerdict>> {
+        reviewCalls++
+        return reviewFor(request, questions)
+    }
     var lastTipsRequest: StudyTipsRequest? = null
     var explainResult: Result<String> = Result.success("La respuesta correcta es **B**.")
     var explainCalls = 0
@@ -137,7 +154,8 @@ class FakeGeminiService(var tipsResult: Result<String> = Result.success("- Estud
         generateCalls++
         lastSyllabus = request.syllabus
         lastRequest = request
-        return questionsResult
+        requests += request
+        return questionsFor?.invoke(request) ?: questionsResult
     }
 }
 
@@ -148,13 +166,26 @@ class FakeAiLogger : AiLogger {
     override fun warn(message: String) { lines += "W $message" }
 }
 
-fun generated(n: Int) = GeneratedQuestion(
-    statement = "Pregunta $n",
+/** A valid question about [topic]; different [n] give clearly different statements. */
+fun generated(n: Int, topic: String = "cinemática") = GeneratedQuestion(
+    statement = "Pregunta $n de $topic: caso número $n",
     options = listOf("A$n", "B$n", "C$n", "D$n"),
-    correctOptionIndex = 1,
-    explanation = "Porque B$n",
+    correctOptionIndex = n % 4,
+    explanation = "Porque B$n en $topic.",
     scenario = if (n % 3 == 0) "Caso $n" else null,
 )
+
+/** Records what would be sent to WorkManager. */
+class FakeQuestionPrefetcher : QuestionPrefetcher {
+    val refills = mutableListOf<Pair<String, Boolean>>()
+    val topUps = mutableListOf<Triple<String, String, Int>>()
+    val status = MutableStateFlow<Map<String, PrefetchStatus>>(emptyMap())
+    override fun refill(courseId: String, fresh: Boolean, topics: String?) { refills += courseId to fresh }
+    override fun topUp(courseId: String, simulacrumId: String, desired: Int, topics: String?) {
+        topUps += Triple(courseId, simulacrumId, desired)
+    }
+    override fun observeStatus(): Flow<Map<String, PrefetchStatus>> = status
+}
 
 class FakeQuestionRepository : FakeOwnedRepository<Question>({ it.id }), QuestionRepository {
     override fun observeByCourse(courseId: String): Flow<List<Question>> =

@@ -5,7 +5,7 @@ class GeminiConfig(
     val apiKey: String,
     val model: String,
     val provider: String,
-    /** Tried in order when a model keeps failing with 429, 500 or 503 (after its retries). */
+    /** Tried in order when a model fails (timeout, 404, 429, 5xx); only an invalid API key stops the chain. */
     val fallbackModels: List<String> = emptyList(),
 ) {
     val hasApiKey: Boolean get() = apiKey.isNotBlank()
@@ -25,11 +25,14 @@ class GeminiConfig(
 }
 
 /**
- * Retries for overload and rate limits: one wait per retry (2 s, 5 s and 10 s by default), then a
- * single attempt with the fallback model.
+ * [callTimeoutMillis] limits every Gemini call (25 s); a timeout moves on to the next model.
+ * A per-minute rate limit (429) waits 2 s, 5 s and 10 s on the same model before moving on.
  */
-data class RetryPolicy(val delaysMillis: List<Long> = listOf(2_000L, 5_000L, 10_000L)) {
+data class RetryPolicy(
+    val delaysMillis: List<Long> = listOf(2_000L, 5_000L, 10_000L),
+    val callTimeoutMillis: Long = CALL_TIMEOUT_MILLIS,
+) {
     companion object {
-        val RETRYABLE_HTTP_CODES = setOf(429, 500, 503)
+        const val CALL_TIMEOUT_MILLIS = 25_000L
     }
 }

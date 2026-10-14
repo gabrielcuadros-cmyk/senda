@@ -45,6 +45,14 @@ object SendaRules {
     fun isPassing(grade: Double): Boolean = grade >= PASSING_GRADE
     val READINESS_WEIGHTS = listOf(0.5, 0.3, 0.2)
 
+    // AI question bank (HU-15)
+    const val QUESTION_BATCH_SIZE = 5
+    const val QUESTION_BANK_TARGET = 15
+    /** An attempt starts at once with this many available questions; the rest arrive in the background. */
+    const val MIN_QUESTIONS_TO_START = 3
+    /** Questions answered right in this many recent attempts are not asked again. */
+    const val RECENT_ATTEMPTS_WITHOUT_REPEATS = 2
+
     // Pomodoro and wellbeing (D-13, D-15)
     const val POMODORO_FOCUS_MINUTES = 25
     const val POMODORO_SHORT_BREAK_MINUTES = 5

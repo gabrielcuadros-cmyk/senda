@@ -14,8 +14,11 @@ sealed class AiError(message: String, cause: Throwable? = null) : Exception(mess
     /** Every model in the chain answered 429: the free tier is used up for today. */
     class FreeLimitReached(val models: List<String>) : AiError("All models hit their quota: ${models.joinToString()}")
 
-    /** Missing or invalid API key, or a model name that does not exist. */
-    class Configuration(detail: String) : AiError(detail)
+    /**
+     * Missing or invalid API key ([invalidKey], stops everything) or a model that does not exist (HTTP 404),
+     * which only skips that model.
+     */
+    class Configuration(detail: String, val invalidKey: Boolean = true) : AiError(detail)
 
     /** The answer could not be read (invalid JSON, empty or truncated). */
     class InvalidResponse(detail: String, cause: Throwable? = null) : AiError(detail, cause)
@@ -27,11 +30,16 @@ sealed class AiError(message: String, cause: Throwable? = null) : Exception(mess
     class Server(val code: Int, detail: String) : AiError(detail)
 }
 
-/** Request to generate mock-exam questions from text and, optionally, the exams' PDFs. */
+/** Request to generate mock-exam questions from text and, optionally, the exams' and labs' PDFs. */
 data class QuestionRequest(
     val courseName: String,
     val syllabus: String,
     val count: Int,
     /** Local paths of PDFs in the app storage (D-11). */
     val pdfPaths: List<String> = emptyList(),
+    /** Position of this batch among the parallel batches, so each one covers a different part of the syllabus. */
+    val batchIndex: Int = 0,
+    val batchCount: Int = 1,
+    /** Statements already in the bank, so the model does not ask the same again. */
+    val avoidStatements: List<String> = emptyList(),
 )

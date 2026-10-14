@@ -68,6 +68,8 @@ data class QuestionEntity(
     val explanation: String,
     val source: String,
     val createdAt: Long,
+    /** QuestionReport name when the student reported it (schema v2). */
+    val reportReason: String? = null,
 )
 
 @Entity(tableName = "simulacra", indices = [Index("ownerUid"), Index("ownerUid", "courseId")])

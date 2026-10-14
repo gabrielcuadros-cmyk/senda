@@ -24,6 +24,7 @@ object QuestionValidator {
         if (options.map { it.lowercase() }.toSet().size != options.size) add("opciones repetidas")
         if (question.correctOptionIndex !in options.indices) add("índice correcto fuera de rango (${question.correctOptionIndex})")
         if (question.explanation.isBlank()) add("sin explicación")
+        if (options.any { QuestionQuality.isCatchAll(it) }) add("usa \"todas/ninguna de las anteriores\"")
     }
 
     fun isValid(question: GeneratedQuestion): Boolean = problems(question).isEmpty()

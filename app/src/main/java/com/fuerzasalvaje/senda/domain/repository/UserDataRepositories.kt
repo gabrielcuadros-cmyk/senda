@@ -77,6 +77,30 @@ interface PomodoroTimer {
     fun link(evaluationId: String?, courseId: String?, title: String?)
 }
 
+/** State of the background question generation of one course (shown on its Simulacros card). */
+enum class PrefetchStatus { PREPARING, RETRYING, FAILED, IDLE }
+
+/**
+ * Generates questions in the background, with network and retries, so a mock exam never waits for Gemini.
+ * Implemented with WorkManager.
+ */
+interface QuestionPrefetcher {
+    /** Tops the course bank up to its target; [fresh] generates a full new set (new syllabus or PDF). */
+    fun refill(courseId: String, fresh: Boolean = false, topics: String? = null)
+
+    /** Adds questions to an attempt that started with fewer than [desired]. */
+    fun topUp(courseId: String, simulacrumId: String, desired: Int, topics: String? = null)
+
+    fun observeStatus(): Flow<Map<String, PrefetchStatus>>
+
+    /** Does nothing: for tests and code paths without background work. */
+    object None : QuestionPrefetcher {
+        override fun refill(courseId: String, fresh: Boolean, topics: String?) = Unit
+        override fun topUp(courseId: String, simulacrumId: String, desired: Int, topics: String?) = Unit
+        override fun observeStatus(): Flow<Map<String, PrefetchStatus>> = flowOf(emptyMap())
+    }
+}
+
 /** Periodic signal for values that depend on the current time. */
 interface Ticker {
     val ticks: Flow<Unit>

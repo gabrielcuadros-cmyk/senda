@@ -3,16 +3,19 @@ package com.fuerzasalvaje.senda.util.gemini
 import com.fuerzasalvaje.senda.domain.model.AiError
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
 import com.fuerzasalvaje.senda.domain.model.QuestionRequest
+import com.fuerzasalvaje.senda.domain.model.QuestionVerdict
 import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
 import com.fuerzasalvaje.senda.domain.repository.AiLogger
 import com.fuerzasalvaje.senda.domain.repository.GeminiService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -37,10 +40,11 @@ abstract class BaseGeminiService(
     }
 
     /**
-     * Tries the main model and then each fallback in order. Every model gets the 2 s / 5 s / 10 s
-     * retries for 429, 500 and 503, except a daily quota 429, which moves on at once because
-     * waiting cannot fix it. Any other error fails immediately. When every model ends with 429,
-     * the result is [AiError.FreeLimitReached].
+     * Tries the main model and then each fallback in order. Every call has a [RetryPolicy.callTimeoutMillis] limit.
+     * A timeout, a missing model (404), an overload (500, 503), an empty answer or any other failure moves on to
+     * the next model at once; only a rate limit (429 per minute) waits and retries on the same model first.
+     * Only an invalid API key stops the chain. When every model ends with 429 the result is
+     * [AiError.FreeLimitReached]; otherwise the last error.
      */
     private suspend fun generateText(prompt: GeminiPrompt): String {
         val chain = (listOf(config.model) + config.fallbackModels).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
@@ -61,27 +65,35 @@ abstract class BaseGeminiService(
                 try {
                     return sendWithRetries(prompt, model, markRetrying)
                 } catch (e: AiError) {
-                    if (!e.isRetryable()) throw e
+                    if (e.stopsChain()) throw e
                     failures += e
                 }
             }
-            if (failures.all { it is AiError.QuotaExceeded }) {
+            if (failures.isNotEmpty() && failures.all { it is AiError.QuotaExceeded }) {
                 logger.warn("Every model hit its quota: ${chain.joinToString()}")
                 throw AiError.FreeLimitReached(chain)
             }
-            throw failures.last()
+            throw failures.lastOrNull() ?: AiError.Configuration("No Gemini model configured")
         } finally {
             if (markedRetrying) changeRetrying(-1)
         }
     }
 
-    /** One model with its retries; rethrows the last retryable error when they run out. */
+    /** One call with the time limit; a timeout becomes [AiError.Timeout] so the chain moves on. */
+    private suspend fun sendOnce(prompt: GeminiPrompt, model: String): String = try {
+        withTimeout(retryPolicy.callTimeoutMillis) { send(prompt, model) }
+    } catch (e: TimeoutCancellationException) {
+        logger.warn("Gemini timeout after ${retryPolicy.callTimeoutMillis / 1000} s (model=$model)")
+        throw AiError.Timeout(e)
+    }
+
+    /** One model; only a per-minute rate limit is retried here, everything else goes back to the chain. */
     private suspend fun sendWithRetries(prompt: GeminiPrompt, model: String, onRetry: () -> Unit): String {
         var lastError: AiError
         try {
-            return send(prompt, model)
+            return sendOnce(prompt, model)
         } catch (e: AiError) {
-            if (!e.isRetryable() || e.isDailyQuota()) throw e.also { logDailyQuota(it, model) }
+            if (!e.isRateLimit()) throw e.also { logDailyQuota(it, model) }
             lastError = e
         }
         for ((index, wait) in retryPolicy.delaysMillis.withIndex()) {
@@ -89,9 +101,9 @@ abstract class BaseGeminiService(
             logger.warn("Gemini busy (${lastError.describe()}, model=$model); retry ${index + 1}/${retryPolicy.delaysMillis.size} in ${wait / 1000} s")
             delay(wait)
             try {
-                return send(prompt, model)
+                return sendOnce(prompt, model)
             } catch (e: AiError) {
-                if (!e.isRetryable() || e.isDailyQuota()) throw e.also { logDailyQuota(it, model) }
+                if (!e.isRateLimit()) throw e.also { logDailyQuota(it, model) }
                 lastError = e
             }
         }
@@ -102,17 +114,17 @@ abstract class BaseGeminiService(
         if (error.isDailyQuota()) logger.warn("Daily quota exhausted for $model; no retries")
     }
 
-    private fun AiError.isRetryable(): Boolean = when (this) {
-        is AiError.QuotaExceeded -> true
-        is AiError.Server -> code in RetryPolicy.RETRYABLE_HTTP_CODES
-        else -> false
-    }
+    /** 429 per minute: waiting on the same model helps. A daily quota does not. */
+    private fun AiError.isRateLimit(): Boolean = this is AiError.QuotaExceeded && !daily
+
+    private fun AiError.stopsChain(): Boolean = this is AiError.Configuration && invalidKey
 
     private fun AiError.isDailyQuota(): Boolean = this is AiError.QuotaExceeded && daily
 
     private fun AiError.describe(): String = when (this) {
         is AiError.QuotaExceeded -> if (daily) "HTTP 429 daily quota" else "HTTP 429"
         is AiError.Server -> "HTTP $code"
+        is AiError.Configuration -> if (invalidKey) "invalid API key" else "model not found"
         else -> javaClass.simpleName
     }
 
@@ -130,24 +142,38 @@ abstract class BaseGeminiService(
         generateText(prompts.studyTips(request))
     }
 
-    /** Strict JSON with the question schema; one retry when the answer is not valid JSON. */
+    /** One batch with the strict question schema; one more call when the answer is not valid JSON. */
     override suspend fun generateQuestions(request: QuestionRequest): Result<List<GeneratedQuestion>> = runSafely {
         require(request.count > 0) { "count must be positive" }
         val attachments = withContext(Dispatchers.IO) { loadPdfs(request.pdfPaths, logger) }
         require(request.syllabus.isNotBlank() || attachments.isNotEmpty()) { "Nothing to generate from" }
-        val prompt = prompts.generateQuestions(request.courseName, request.syllabus, request.count, attachments)
-        logger.info(
-            "Questions requested=${request.count} syllabusChars=${request.syllabus.length} " +
-                "pdfs=${attachments.size} (${attachments.sumOf { it.bytes.size } / 1024} KB)"
+        val prompt = prompts.generateQuestions(
+            request.courseName, request.syllabus, request.count, attachments,
+            request.batchIndex, request.batchCount, request.avoidStatements,
         )
+        logger.info(
+            "Questions requested=${request.count} batch=${request.batchIndex + 1}/${request.batchCount} " +
+                "syllabusChars=${request.syllabus.length} pdfs=${attachments.size} (${attachments.sumOf { it.bytes.size } / 1024} KB)"
+        )
+        parsed(prompt, "Questions") { prompts.parseQuestions(it) }
+    }
 
+    override suspend fun reviewQuestions(request: QuestionRequest, questions: List<GeneratedQuestion>): Result<List<QuestionVerdict>> =
+        runSafely {
+            if (questions.isEmpty()) return@runSafely emptyList()
+            val attachments = withContext(Dispatchers.IO) { loadPdfs(request.pdfPaths, logger) }
+            val prompt = prompts.reviewQuestions(request.courseName, request.syllabus, questions, attachments)
+            parsed(prompt, "Review") { prompts.parseReview(it) }
+        }
+
+    private suspend fun <T> parsed(prompt: GeminiPrompt, label: String, parse: (String) -> List<T>): List<T> {
         var lastError: AiError.InvalidResponse? = null
         repeat(MAX_ATTEMPTS) { attempt ->
             val raw = generateText(prompt)
             try {
-                val questions = prompts.parseQuestions(raw)
-                logger.info("Questions received=${questions.size} on attempt ${attempt + 1}")
-                return@runSafely questions
+                val items = parse(raw)
+                logger.info("$label received=${items.size} on attempt ${attempt + 1}")
+                return items
             } catch (e: AiError.InvalidResponse) {
                 logger.warn("Invalid JSON on attempt ${attempt + 1}: ${e.message}. Answer starts with: ${raw.take(160)}")
                 lastError = e

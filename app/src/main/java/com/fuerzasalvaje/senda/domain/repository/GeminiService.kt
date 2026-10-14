@@ -2,6 +2,7 @@ package com.fuerzasalvaje.senda.domain.repository
 
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
 import com.fuerzasalvaje.senda.domain.model.QuestionRequest
+import com.fuerzasalvaje.senda.domain.model.QuestionVerdict
 import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
 import kotlinx.coroutines.flow.StateFlow
 
@@ -31,6 +32,12 @@ interface GeminiService {
      * Returns every question received, valid or not: the caller validates them.
      */
     suspend fun generateQuestions(request: QuestionRequest): Result<List<GeneratedQuestion>>
+
+    /**
+     * Second call that checks a generated batch against the same material: one verdict per question,
+     * "ok" or a corrected version. Questions without a verdict are not approved.
+     */
+    suspend fun reviewQuestions(request: QuestionRequest, questions: List<GeneratedQuestion>): Result<List<QuestionVerdict>>
 }
 
 /** Diagnostic log for AI calls (Logcat tag SendaAI). Implementations must never print secrets. */

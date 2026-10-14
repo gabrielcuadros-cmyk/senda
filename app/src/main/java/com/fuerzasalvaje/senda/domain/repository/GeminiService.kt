@@ -3,12 +3,16 @@ package com.fuerzasalvaje.senda.domain.repository
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
 import com.fuerzasalvaje.senda.domain.model.QuestionRequest
 import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * AI features of Senda. Implementations may use the Gemini REST API or Firebase AI Logic.
  * Failures are reported as [com.fuerzasalvaje.senda.domain.model.AiError].
  */
 interface GeminiService {
+
+    /** True while a call is waiting to retry after an overload (500, 503) or rate limit (429). */
+    val retrying: StateFlow<Boolean>
 
     /** Explains why [studentAnswer] is wrong (or missing) and why [correctAnswer] is right. */
     suspend fun explainMistake(

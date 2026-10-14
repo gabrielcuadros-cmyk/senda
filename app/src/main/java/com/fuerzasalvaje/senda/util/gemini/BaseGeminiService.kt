@@ -7,18 +7,79 @@ import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
 import com.fuerzasalvaje.senda.domain.repository.AiLogger
 import com.fuerzasalvaje.senda.domain.repository.GeminiService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.coroutines.cancellation.CancellationException
 
-/** Shared prompt, attachment and parsing flow; subclasses only implement the transport. */
+/** Shared prompt, attachment, retry and parsing flow; subclasses only implement the transport. */
 abstract class BaseGeminiService(
     private val prompts: GeminiPrompts,
     protected val logger: AiLogger,
+    private val config: GeminiConfig,
+    private val retryPolicy: RetryPolicy = RetryPolicy(),
 ) : GeminiService {
 
-    /** Sends [prompt] to the model and returns its text output. Throws [AiError] on failure. */
-    protected abstract suspend fun generateText(prompt: GeminiPrompt): String
+    /** Sends [prompt] to [model] and returns its text output. Throws [AiError] on failure. */
+    protected abstract suspend fun send(prompt: GeminiPrompt, model: String): String
+
+    // Number of calls currently waiting or retrying; several AI calls can overlap.
+    private val retryingCalls = MutableStateFlow(0)
+    private val _retrying = MutableStateFlow(false)
+    override val retrying: StateFlow<Boolean> = _retrying.asStateFlow()
+
+    private fun changeRetrying(delta: Int) {
+        _retrying.value = retryingCalls.updateAndGet { it + delta } > 0
+    }
+
+    /**
+     * 500, 503 and 429 are retried after 2 s, 5 s and 10 s; if they keep failing, one attempt goes
+     * to the fallback model. Any other error fails immediately.
+     */
+    private suspend fun generateText(prompt: GeminiPrompt): String {
+        var lastError: AiError
+        try {
+            return send(prompt, config.model)
+        } catch (e: AiError) {
+            if (!e.isRetryable()) throw e
+            lastError = e
+        }
+        changeRetrying(+1)
+        try {
+            for ((index, wait) in retryPolicy.delaysMillis.withIndex()) {
+                logger.warn("Gemini busy (${lastError.describe()}); retry ${index + 1}/${retryPolicy.delaysMillis.size} in ${wait / 1000} s")
+                delay(wait)
+                try {
+                    return send(prompt, config.model)
+                } catch (e: AiError) {
+                    if (!e.isRetryable()) throw e
+                    lastError = e
+                }
+            }
+            val fallback = config.fallbackModel.trim()
+            if (fallback.isEmpty() || fallback == config.model) throw lastError
+            logger.warn("Gemini still busy after ${retryPolicy.delaysMillis.size} retries; using fallback model $fallback")
+            return send(prompt, fallback)
+        } finally {
+            changeRetrying(-1)
+        }
+    }
+
+    private fun AiError.isRetryable(): Boolean = when (this) {
+        is AiError.QuotaExceeded -> true
+        is AiError.Server -> code in RetryPolicy.RETRYABLE_HTTP_CODES
+        else -> false
+    }
+
+    private fun AiError.describe(): String = when (this) {
+        is AiError.QuotaExceeded -> "HTTP 429"
+        is AiError.Server -> "HTTP $code"
+        else -> javaClass.simpleName
+    }
 
     override suspend fun explainMistake(
         courseName: String,

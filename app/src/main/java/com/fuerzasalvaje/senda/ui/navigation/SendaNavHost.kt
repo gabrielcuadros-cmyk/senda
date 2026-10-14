@@ -38,6 +38,7 @@ import androidx.navigation.compose.rememberNavController
 import com.fuerzasalvaje.senda.ui.auth.LoginScreen
 import com.fuerzasalvaje.senda.ui.auth.RegisterScreen
 import com.fuerzasalvaje.senda.ui.calendar.CalendarScreen
+import com.fuerzasalvaje.senda.ui.components.AiBusyBanner
 import com.fuerzasalvaje.senda.ui.components.ConfirmDialog
 import com.fuerzasalvaje.senda.ui.components.EmptyState
 import com.fuerzasalvaje.senda.ui.courses.CourseFormScreen
@@ -57,10 +58,13 @@ import androidx.compose.runtime.setValue
 @Composable
 fun SendaRoot(sessionViewModel: SessionViewModel = hiltViewModel()) {
     val session by sessionViewModel.state.collectAsStateWithLifecycle()
-    when (session) {
-        SessionState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        SessionState.SignedOut -> AuthNavHost()
-        is SessionState.SignedIn -> MainNavHost(onSignOut = sessionViewModel::signOut)
+    Box(Modifier.fillMaxSize()) {
+        when (session) {
+            SessionState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            SessionState.SignedOut -> AuthNavHost()
+            is SessionState.SignedIn -> MainNavHost(onSignOut = sessionViewModel::signOut)
+        }
+        AiBusyBanner(Modifier.align(Alignment.TopCenter))
     }
 }
 

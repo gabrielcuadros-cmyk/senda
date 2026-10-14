@@ -19,10 +19,11 @@ class BaseGeminiServiceTest {
     private val good = """{"questions":[{"statement":"¿A?","options":["1","2","3","4"],"correctOptionIndex":0,"explanation":"x"}]}"""
 
     /** Returns the scripted answers in order and records every prompt it receives. */
-    private inner class ScriptedService(vararg answers: String) : BaseGeminiService(GeminiPrompts(Json { ignoreUnknownKeys = true }), logger) {
+    private inner class ScriptedService(vararg answers: String) :
+        BaseGeminiService(GeminiPrompts(Json { ignoreUnknownKeys = true }), logger, GeminiConfig("key", "main-model", "apikey")) {
         private val queue = ArrayDeque(answers.toList())
         val prompts = mutableListOf<GeminiPrompt>()
-        override suspend fun generateText(prompt: GeminiPrompt): String {
+        override suspend fun send(prompt: GeminiPrompt, model: String): String {
             prompts += prompt
             return queue.removeFirst()
         }

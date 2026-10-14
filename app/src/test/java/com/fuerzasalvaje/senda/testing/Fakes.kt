@@ -127,6 +127,7 @@ class FakeGeminiService(var tipsResult: Result<String> = Result.success("- Estud
         return tipsResult
     }
     var lastRequest: QuestionRequest? = null
+    override val retrying = kotlinx.coroutines.flow.MutableStateFlow(false)
 
     override suspend fun generateQuestions(request: QuestionRequest): Result<List<GeneratedQuestion>> {
         generateCalls++

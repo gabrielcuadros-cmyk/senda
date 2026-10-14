@@ -31,9 +31,9 @@ class GeminiRestService @Inject constructor(
     private val config: GeminiConfig,
     prompts: GeminiPrompts,
     logger: AiLogger,
-) : BaseGeminiService(prompts, logger) {
+) : BaseGeminiService(prompts, logger, config) {
 
-    override suspend fun generateText(prompt: GeminiPrompt): String {
+    override suspend fun send(prompt: GeminiPrompt, model: String): String {
         if (!config.hasApiKey) throw AiError.Configuration("GEMINI_API_KEY is not configured in local.properties")
 
         val parts = prompt.attachments.map { Part(inlineData = InlineData(PDF, Base64.getEncoder().encodeToString(it.bytes))) } +
@@ -51,7 +51,7 @@ class GeminiRestService @Inject constructor(
             },
         )
         val request = Request.Builder()
-            .url("$BASE_URL/${config.model}:generateContent")
+            .url("$BASE_URL/$model:generateContent")
             .header("x-goog-api-key", config.apiKey)
             .post(json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
             .build()
@@ -61,7 +61,7 @@ class GeminiRestService @Inject constructor(
             try {
                 client.newCall(request).execute().use { it.code to it.body.string() }
             } catch (e: InterruptedIOException) {
-                logger.warn("Gemini timeout after ${System.currentTimeMillis() - started} ms (model=${config.model})")
+                logger.warn("Gemini timeout after ${System.currentTimeMillis() - started} ms (model=$model)")
                 throw AiError.Timeout(e)
             } catch (e: IOException) {
                 logger.warn("Gemini network error: ${e.javaClass.simpleName}: ${e.message}")
@@ -72,7 +72,7 @@ class GeminiRestService @Inject constructor(
 
         if (code !in 200..299) {
             val error = runCatching { json.decodeFromString<ErrorResponse>(responseText).error }.getOrNull()
-            logger.warn("Gemini HTTP $code status=${error?.status} model=${config.model}: ${error?.message ?: "no message"}")
+            logger.warn("Gemini HTTP $code status=${error?.status} model=$model: ${error?.message ?: "no message"}")
             throw httpError(code, error)
         }
 
@@ -84,7 +84,7 @@ class GeminiRestService @Inject constructor(
         }
         val candidate = parsed.candidates.firstOrNull()
         val text = candidate?.content?.parts?.mapNotNull { it.text }?.joinToString("").orEmpty()
-        logger.info("Gemini HTTP $code in $elapsed ms model=${config.model} finishReason=${candidate?.finishReason} chars=${text.length}")
+        logger.info("Gemini HTTP $code in $elapsed ms model=$model finishReason=${candidate?.finishReason} chars=${text.length}")
 
         parsed.promptFeedback?.blockReason?.let { throw AiError.Blocked(it) }
         if (text.isBlank()) throw AiError.InvalidResponse("Empty answer (finishReason=${candidate?.finishReason})")

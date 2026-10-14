@@ -20,11 +20,11 @@ class FirebaseGeminiService @Inject constructor(
     private val config: GeminiConfig,
     prompts: GeminiPrompts,
     logger: AiLogger,
-) : BaseGeminiService(prompts, logger) {
+) : BaseGeminiService(prompts, logger, config) {
 
-    override suspend fun generateText(prompt: GeminiPrompt): String {
+    override suspend fun send(prompt: GeminiPrompt, model: String): String {
         val model = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
-            modelName = config.model,
+            modelName = model,
             generationConfig = if (prompt.expectsJson) {
                 generationConfig {
                     responseMimeType = "application/json"
@@ -47,7 +47,7 @@ class FirebaseGeminiService @Inject constructor(
             logger.warn("Firebase AI error: ${e.javaClass.simpleName}: ${e.message}")
             throw e.toAiError()
         }
-        logger.info("Firebase AI answered model=${config.model} chars=${text?.length ?: 0}")
+        logger.info("Firebase AI answered model=$model chars=${text?.length ?: 0}")
         return text?.takeIf { it.isNotBlank() } ?: throw AiError.InvalidResponse("Firebase AI returned no text")
     }
 
@@ -63,6 +63,11 @@ class FirebaseGeminiService @Inject constructor(
             names.any { it in setOf("PromptBlockedException", "ResponseStoppedException") } -> AiError.Blocked(message.orEmpty())
             names.any { it in setOf("SerializationException", "InvalidStateException") } -> AiError.InvalidResponse(message.orEmpty(), this)
             names.any { it.contains("Timeout") } -> AiError.Timeout(this)
+            // 5xx: keep the HTTP code when the message carries it, so 500 and 503 are retried.
+            "ServerException" in names -> AiError.Server(
+                Regex("\\b(5\\d\\d)\\b").find(message.orEmpty())?.value?.toInt() ?: 503,
+                message.orEmpty(),
+            )
             else -> AiError.Server(-1, message.orEmpty())
         }
     }

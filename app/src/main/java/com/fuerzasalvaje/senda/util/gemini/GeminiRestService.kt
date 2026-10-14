@@ -18,8 +18,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.io.InterruptedIOException
-import java.util.Base64
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -37,11 +35,10 @@ class GeminiRestService @Inject constructor(
     override suspend fun send(prompt: GeminiPrompt, model: String): String {
         if (!config.hasApiKey) throw AiError.Configuration("GEMINI_API_KEY is not configured in local.properties", invalidKey = true)
 
-        val parts = prompt.attachments.map { Part(inlineData = InlineData(PDF, Base64.getEncoder().encodeToString(it.bytes))) } +
-            Part(text = prompt.user)
+        // Text only: PDFs reach the model as Markdown made on the device, never as a file.
         val body = GenerateContentRequest(
             systemInstruction = Content(parts = listOf(Part(text = prompt.system))),
-            contents = listOf(Content(role = "user", parts = parts)),
+            contents = listOf(Content(role = "user", parts = listOf(Part(text = prompt.user)))),
             generationConfig = generationConfig(prompt, model),
         )
         val request = Request.Builder()
@@ -50,18 +47,10 @@ class GeminiRestService @Inject constructor(
             .post(json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
             .build()
 
-        // The shared client stops at 25 s; a longer call (the PDF summary) gets its own limits on the same pool.
-        val callClient = prompt.timeoutMillis?.let { limit ->
-            client.newBuilder()
-                .callTimeout(limit, TimeUnit.MILLISECONDS)
-                .readTimeout(limit, TimeUnit.MILLISECONDS)
-                .writeTimeout(limit, TimeUnit.MILLISECONDS)
-                .build()
-        } ?: client
         val started = System.currentTimeMillis()
         val (code, responseText) = withContext(Dispatchers.IO) {
             try {
-                callClient.newCall(request).execute().use { it.code to it.body.string() }
+                client.newCall(request).execute().use { it.code to it.body.string() }
             } catch (e: InterruptedIOException) {
                 logger.warn("Gemini timeout after ${System.currentTimeMillis() - started} ms (model=$model)")
                 throw AiError.Timeout(e)
@@ -135,10 +124,7 @@ class GeminiRestService @Inject constructor(
     private data class Content(val role: String? = null, val parts: List<Part> = emptyList())
 
     @Serializable
-    private data class Part(val text: String? = null, val inlineData: InlineData? = null)
-
-    @Serializable
-    private data class InlineData(val mimeType: String, val data: String)
+    private data class Part(val text: String? = null)
 
     @Serializable
     private data class GenerationConfig(
@@ -170,7 +156,6 @@ class GeminiRestService @Inject constructor(
 
     companion object {
         private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
-        private const val PDF = "application/pdf"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         /** One question: {statement, scenario?, options[4], correctOptionIndex, explanation}. */

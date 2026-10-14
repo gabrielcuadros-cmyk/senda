@@ -42,10 +42,8 @@ class FirebaseGeminiService @Inject constructor(
             },
             systemInstruction = content { text(prompt.system) },
         )
-        val request = content {
-            prompt.attachments.forEach { inlineData(it.bytes, "application/pdf") }
-            text(prompt.user)
-        }
+        // Text only: PDFs reach the model as Markdown made on the device, never as a file.
+        val request = content { text(prompt.user) }
         val text = try {
             model.generateContent(request).text
         } catch (e: CancellationException) {

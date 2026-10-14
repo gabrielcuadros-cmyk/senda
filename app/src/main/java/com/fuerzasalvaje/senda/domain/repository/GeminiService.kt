@@ -1,8 +1,6 @@
 package com.fuerzasalvaje.senda.domain.repository
 
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
-import com.fuerzasalvaje.senda.domain.model.PdfDigestRequest
-import com.fuerzasalvaje.senda.domain.model.PdfDigestResult
 import com.fuerzasalvaje.senda.domain.model.QuestionRequest
 import com.fuerzasalvaje.senda.domain.model.QuestionVerdict
 import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
@@ -10,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * AI features of Senda. Implementations may use the Gemini REST API or Firebase AI Logic.
+ * Every request is text only: PDFs are turned into Markdown on the device and never sent.
  * Failures are reported as [com.fuerzasalvaje.senda.domain.model.AiError].
  */
 interface GeminiService {
@@ -30,13 +29,7 @@ interface GeminiService {
     suspend fun studyTips(request: StudyTipsRequest): Result<String>
 
     /**
-     * Summarizes one PDF for study, once: concepts, definitions, formulas, figures, cases and examples, each with
-     * its page or slide. Allows a longer call than the other features (120 s).
-     */
-    suspend fun digestPdf(request: PdfDigestRequest): Result<PdfDigestResult>
-
-    /**
-     * Generates multiple-choice and case questions from the syllabus and the PDF study summaries.
+     * Generates multiple-choice and case questions from the syllabus and the PDF Markdown.
      * Returns every question received, valid or not: the caller validates them.
      */
     suspend fun generateQuestions(request: QuestionRequest): Result<List<GeneratedQuestion>>

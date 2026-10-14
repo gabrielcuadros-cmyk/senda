@@ -62,6 +62,7 @@ import com.fuerzasalvaje.senda.domain.model.ExamType
 import com.fuerzasalvaje.senda.domain.model.LabModality
 import com.fuerzasalvaje.senda.domain.model.PhaseStatus
 import com.fuerzasalvaje.senda.domain.model.SendaRules
+import com.fuerzasalvaje.senda.ui.components.AiContentSection
 import com.fuerzasalvaje.senda.ui.components.ChipOption
 import com.fuerzasalvaje.senda.ui.components.ConfirmDialog
 import com.fuerzasalvaje.senda.ui.components.DateField
@@ -166,6 +167,17 @@ fun EvaluationFormScreen(
                 if (state.type != EvaluationType.PROJECT) {
                     ScheduleFields(state, viewModel)
                     PdfField(state, viewModel)
+                    if (state.pdfPath != null || state.pdfMarkdown.isNotBlank()) {
+                        AiContentSection(
+                            markdown = state.pdfMarkdown,
+                            onMarkdownChange = viewModel::onPdfMarkdown,
+                            summarized = state.pdfSummarized,
+                            noText = state.pdfNoText,
+                            extracting = state.extractingPdf,
+                            canReextract = state.pdfPath != null,
+                            onReextract = viewModel::reextractPdf,
+                        )
+                    }
                 }
 
                 DifficultyAndWeight(state, viewModel)
@@ -315,6 +327,7 @@ private fun PdfField(state: EvaluationFormUiState, viewModel: EvaluationFormView
                 Text(
                     when {
                         state.importingPdf -> "Copiando…"
+                        state.extractingPdf -> "Leyendo el texto en el teléfono…"
                         state.pdfPath != null -> "Guardado en el teléfono: ${File(state.pdfPath).name.take(12)}…"
                         else -> "Se guarda solo en este teléfono."
                     },

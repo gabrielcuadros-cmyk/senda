@@ -46,6 +46,29 @@ val Evaluation.localPdfPath: String?
         is Project -> null
     }
 
+/** Markdown of the PDF that the AI reads (the PDF itself is never sent); empty when there is none. */
+val Evaluation.pdfMarkdown: String
+    get() = when (this) {
+        is Exam -> syllabusPdfMarkdown
+        is Lab -> guidePdfMarkdown
+        is Project -> ""
+    }
+
+/** True when [pdfMarkdown] is a shortened version of the PDF (it did not fit in the AI budget). */
+val Evaluation.pdfSummarized: Boolean
+    get() = when (this) {
+        is Exam -> syllabusPdfSummarized
+        is Lab -> guidePdfSummarized
+        is Project -> false
+    }
+
+/** The same evaluation with new PDF Markdown; projects have no PDF. */
+fun Evaluation.withPdfMarkdown(markdown: String, summarized: Boolean): Evaluation = when (this) {
+    is Exam -> copy(syllabusPdfMarkdown = markdown, syllabusPdfSummarized = summarized)
+    is Lab -> copy(guidePdfMarkdown = markdown, guidePdfSummarized = summarized)
+    is Project -> this
+}
+
 private fun Evaluation.checkInvariants() {
     require(difficulty in SendaRules.DIFFICULTY_RANGE) { "Difficulty must be 1 to 5" }
     require(SendaRules.isValidWeight(weightPercent)) { "Weight must be > 0 and <= 100" }
@@ -70,6 +93,9 @@ data class Exam(
     val syllabus: String = "",
     /** Local copy in the app's internal storage; never uploaded (D-11). */
     val syllabusPdfPath: String? = null,
+    /** Markdown made on the device from the PDF, editable by the student; synced with the evaluation. */
+    val syllabusPdfMarkdown: String = "",
+    val syllabusPdfSummarized: Boolean = false,
 ) : Evaluation {
     override val type get() = EvaluationType.EXAM
 
@@ -96,6 +122,9 @@ data class Lab(
     val requiredTools: List<String> = emptyList(),
     val modality: LabModality = LabModality.INDIVIDUAL,
     val guidePdfPath: String? = null,
+    /** Markdown made on the device from the guide, editable by the student; synced with the evaluation. */
+    val guidePdfMarkdown: String = "",
+    val guidePdfSummarized: Boolean = false,
 ) : Evaluation {
     override val type get() = EvaluationType.LAB
 

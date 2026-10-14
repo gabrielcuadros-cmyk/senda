@@ -150,15 +150,6 @@ class FakeGeminiService(var tipsResult: Result<String> = Result.success("- Estud
     var lastRequest: QuestionRequest? = null
     override val retrying = kotlinx.coroutines.flow.MutableStateFlow(false)
 
-    var digestResult: Result<com.fuerzasalvaje.senda.domain.model.PdfDigestResult> =
-        Result.success(com.fuerzasalvaje.senda.domain.model.PdfDigestResult("## Fórmulas\n- V = I x R (diap. 3)", "gemini-test"))
-    val digestRequests = mutableListOf<com.fuerzasalvaje.senda.domain.model.PdfDigestRequest>()
-
-    override suspend fun digestPdf(request: com.fuerzasalvaje.senda.domain.model.PdfDigestRequest): Result<com.fuerzasalvaje.senda.domain.model.PdfDigestResult> {
-        digestRequests += request
-        return digestResult
-    }
-
     override suspend fun generateQuestions(request: QuestionRequest): Result<List<GeneratedQuestion>> {
         generateCalls++
         lastSyllabus = request.syllabus
@@ -248,3 +239,23 @@ fun exam(
     endAt = durationHours?.let { TEST_NOW + Duration.ofHours(inHours + it) },
     examType = ExamType.PARTIAL,
 )
+
+/** Returns [result] for every PDF and records the paths it was asked to read. */
+class FakePdfTextExtractor(
+    var result: Result<com.fuerzasalvaje.senda.domain.model.PdfText> = Result.success(
+        com.fuerzasalvaje.senda.domain.model.PdfText(
+            listOf(
+                "Ley de Ohm\n• La tensión es V = I x R\n• Unidades: voltio (V), amperio (A), ohmio (Ω)",
+                "Caso de estudio\n• Una resistencia de 4 Ω conectada a 12 V\n• Corriente: I = 12 / 4 = 3 A\n• Potencia P = V x I = 36 W",
+                "Ejercicios propuestos\n• Calcula la corriente para R = 6 Ω y V = 24 V\n• Calcula la potencia disipada por cada resistencia",
+            ),
+            slides = true,
+        )
+    ),
+) : com.fuerzasalvaje.senda.domain.repository.PdfTextExtractor {
+    val calls = mutableListOf<String>()
+    override suspend fun extract(path: String): Result<com.fuerzasalvaje.senda.domain.model.PdfText> {
+        calls += path
+        return result
+    }
+}

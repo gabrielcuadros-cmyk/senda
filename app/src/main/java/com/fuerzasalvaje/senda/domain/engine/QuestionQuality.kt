@@ -39,6 +39,9 @@ object QuestionQuality {
 
     private fun words(text: String): Set<String> = normalize(text).split(' ').filter { it.isNotEmpty() }.toSet()
 
+    /** Word stems of [text], comparable with [keywords]. */
+    fun stems(text: String): Set<String> = words(text).map { it.take(STEM_LENGTH) }.toSet()
+
     /** Jaccard similarity of the statements' words, 0 to 1. */
     fun similarity(a: String, b: String): Double {
         val wa = words(a)

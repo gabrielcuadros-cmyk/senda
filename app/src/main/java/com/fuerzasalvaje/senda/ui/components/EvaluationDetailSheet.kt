@@ -1,7 +1,13 @@
 package com.fuerzasalvaje.senda.ui.components
 
-import com.fuerzasalvaje.senda.domain.model.PdfDigestStatus
 import com.fuerzasalvaje.senda.domain.model.localPdfPath
+import com.fuerzasalvaje.senda.domain.model.pdfMarkdown
+import com.fuerzasalvaje.senda.domain.model.pdfSummarized
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import com.fuerzasalvaje.senda.domain.engine.Validators
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.OutlinedButton
@@ -55,8 +61,10 @@ fun EvaluationDetailSheet(
     onPhaseStatus: (ProjectPhase, PhaseStatus) -> Unit,
     highlightedPhase: ProjectPhase? = null,
     conflicts: List<Conflict> = emptyList(),
-    /** Where the PDF summary stands; also shown when the PDF lives on another device. */
-    pdfStatus: PdfDigestStatus? = null,
+    /** "Contenido que leerá la IA": edit it or read the PDF again. */
+    aiContent: AiContentUiState = AiContentUiState(),
+    onSaveMarkdown: (String) -> Unit = {},
+    onReextract: () -> Unit = {},
 ) {
     val context = LocalContext.current
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -98,12 +106,32 @@ fun EvaluationDetailSheet(
             Detail("Peso", Formats.percent(evaluation.weightPercent))
             Detail("Horas de estudio", Formats.hours(evaluation.studyHours))
 
-            pdfStatus?.let { PdfDigestStatusLine(it) }
             evaluation.localPdfPath?.let { path ->
                 OutlinedButton(onClick = { openLocalPdf(context, path) }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Rounded.PictureAsPdf, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(if (evaluation is Lab) "Ver guía en PDF" else "Ver temario en PDF")
+                }
+            }
+            if (evaluation.localPdfPath != null || evaluation.pdfMarkdown.isNotBlank()) {
+                // Restarts from the stored text whenever it changes (saved here, re-extracted or synced).
+                var draft by rememberSaveable(evaluation.id, evaluation.pdfMarkdown) { mutableStateOf(evaluation.pdfMarkdown) }
+                AiContentSection(
+                    markdown = draft,
+                    onMarkdownChange = { draft = it },
+                    summarized = evaluation.pdfSummarized,
+                    noText = evaluation.id in aiContent.noTextIds,
+                    extracting = aiContent.extractingId == evaluation.id,
+                    canReextract = evaluation.localPdfPath != null,
+                    onReextract = onReextract,
+                ) {
+                    aiContent.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    if (draft.trim() != evaluation.pdfMarkdown) {
+                        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                            TextButton(onClick = { draft = evaluation.pdfMarkdown }) { Text("Descartar") }
+                            Button(onClick = { onSaveMarkdown(draft) }) { Text("Guardar contenido") }
+                        }
+                    }
                 }
             }
             if (evaluation is Project && evaluation.rubric.isNotEmpty()) {

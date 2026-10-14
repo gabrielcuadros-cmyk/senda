@@ -32,6 +32,8 @@ fun Evaluation.toEntity(ownerUid: String): EvaluationEntity {
         examType = exam?.examType?.name,
         syllabus = exam?.syllabus,
         syllabusPdfPath = exam?.syllabusPdfPath,
+        pdfMarkdown = (exam?.syllabusPdfMarkdown ?: lab?.guidePdfMarkdown)?.takeIf { it.isNotEmpty() },
+        pdfSummarized = exam?.syllabusPdfSummarized ?: lab?.guidePdfSummarized ?: false,
         guideNumber = lab?.guideNumber,
         requiredTools = lab?.requiredTools.orEmpty(),
         modality = lab?.modality?.name,
@@ -58,6 +60,8 @@ fun EvaluationEntity.toDomain(): Evaluation = when (enumOrDefault(type, Evaluati
         examType = enumOrDefault(examType, ExamType.PARTIAL),
         syllabus = syllabus.orEmpty(),
         syllabusPdfPath = syllabusPdfPath,
+        syllabusPdfMarkdown = pdfMarkdown.orEmpty(),
+        syllabusPdfSummarized = pdfSummarized,
     )
     EvaluationType.LAB -> Lab(
         id = id,
@@ -74,6 +78,8 @@ fun EvaluationEntity.toDomain(): Evaluation = when (enumOrDefault(type, Evaluati
         requiredTools = requiredTools,
         modality = enumOrDefault(modality, LabModality.INDIVIDUAL),
         guidePdfPath = guidePdfPath,
+        guidePdfMarkdown = pdfMarkdown.orEmpty(),
+        guidePdfSummarized = pdfSummarized,
     )
     EvaluationType.PROJECT -> Project(
         id = id,
@@ -89,7 +95,7 @@ fun EvaluationEntity.toDomain(): Evaluation = when (enumOrDefault(type, Evaluati
     )
 }
 
-/** PDF paths are local only and are not sent to Firestore (D-11). */
+/** PDF paths are local only and are not sent to Firestore (D-11); the PDF Markdown is. */
 fun Evaluation.toDto(): EvaluationDto {
     val entity = toEntity(ownerUid = "")
     return EvaluationDto(
@@ -106,6 +112,8 @@ fun Evaluation.toDto(): EvaluationDto {
         room = entity.room,
         examType = entity.examType,
         syllabus = entity.syllabus,
+        pdfMarkdown = entity.pdfMarkdown,
+        pdfSummarized = entity.pdfSummarized,
         guideNumber = entity.guideNumber,
         requiredTools = entity.requiredTools,
         modality = entity.modality,
@@ -136,6 +144,8 @@ fun EvaluationDto.toDomain(id: String, localPdfPath: String? = null): Evaluation
     examType = examType,
     syllabus = syllabus,
     syllabusPdfPath = localPdfPath,
+    pdfMarkdown = pdfMarkdown,
+    pdfSummarized = pdfSummarized,
     guideNumber = guideNumber,
     requiredTools = requiredTools,
     modality = modality,

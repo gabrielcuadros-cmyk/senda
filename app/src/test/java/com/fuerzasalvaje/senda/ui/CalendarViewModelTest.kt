@@ -50,7 +50,12 @@ class CalendarViewModelTest {
         changeStatus = ChangeEvaluationStatusUseCase(evaluations),
         updateStudyBlock = UpdateStudyBlockUseCase(studyBlocks),
         clock = testClock,
-        observePdfDigests = com.fuerzasalvaje.senda.domain.usecase.pdf.ObservePdfDigestsUseCase(com.fuerzasalvaje.senda.testing.FakePdfDigestRepository()),
+        editPdfMarkdown = com.fuerzasalvaje.senda.domain.usecase.pdf.EditPdfMarkdownUseCase(
+            com.fuerzasalvaje.senda.domain.usecase.pdf.ExtractPdfMarkdownUseCase(
+                com.fuerzasalvaje.senda.testing.FakePdfTextExtractor(), com.fuerzasalvaje.senda.testing.FakeAiLogger(), testClock,
+            ),
+            com.fuerzasalvaje.senda.domain.usecase.evaluation.SaveEvaluationUseCase(evaluations),
+        ),
     )
 
     private suspend fun ReceiveTurbine<CalendarUiState>.awaitUntil(predicate: (CalendarUiState) -> Boolean): CalendarUiState {

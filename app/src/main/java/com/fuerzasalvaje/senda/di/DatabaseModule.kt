@@ -18,7 +18,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): SendaDatabase =
         Room.databaseBuilder(context, SendaDatabase::class.java, SendaDatabase.NAME)
-            .addMigrations(SendaDatabase.MIGRATION_1_2)
+            .addMigrations(SendaDatabase.MIGRATION_1_2, SendaDatabase.MIGRATION_3_4)
             .build()
 
     @Provides fun provideCourseDao(db: SendaDatabase) = db.courseDao()
@@ -29,5 +29,4 @@ object DatabaseModule {
     @Provides fun providePomodoroSessionDao(db: SendaDatabase) = db.pomodoroSessionDao()
     @Provides fun provideStudyBlockDao(db: SendaDatabase) = db.studyBlockDao()
     @Provides fun provideStressCheckInDao(db: SendaDatabase) = db.stressCheckInDao()
-    @Provides fun providePdfDigestDao(db: SendaDatabase) = db.pdfDigestDao()
 }

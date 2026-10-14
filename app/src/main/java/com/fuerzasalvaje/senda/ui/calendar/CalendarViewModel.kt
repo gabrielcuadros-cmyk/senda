@@ -18,8 +18,8 @@ import com.fuerzasalvaje.senda.domain.usecase.calendar.FilterCalendarUseCase
 import com.fuerzasalvaje.senda.domain.usecase.calendar.ObserveWeekUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ChangeEvaluationStatusUseCase
 import com.fuerzasalvaje.senda.domain.usecase.plan.UpdateStudyBlockUseCase
-import com.fuerzasalvaje.senda.domain.usecase.pdf.ObservePdfDigestsUseCase
-import com.fuerzasalvaje.senda.domain.model.PdfDigest
+import com.fuerzasalvaje.senda.domain.usecase.pdf.EditPdfMarkdownUseCase
+import com.fuerzasalvaje.senda.ui.components.AiContentController
 import com.fuerzasalvaje.senda.domain.model.StudyBlockEntry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -69,14 +69,13 @@ class CalendarViewModel @Inject constructor(
     private val changeStatus: ChangeEvaluationStatusUseCase,
     private val updateStudyBlock: UpdateStudyBlockUseCase,
     private val clock: Clock,
-    observePdfDigests: ObservePdfDigestsUseCase,
+    editPdfMarkdown: EditPdfMarkdownUseCase,
 ) : ViewModel() {
 
     val zone: ZoneId get() = clock.zone
 
-    /** PDF summary of each evaluation, for the status line of the detail sheet. */
-    val pdfDigests: StateFlow<Map<String, PdfDigest>> =
-        observePdfDigests().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    /** "Contenido que leerá la IA" in the detail sheet. */
+    val aiContent = AiContentController(editPdfMarkdown, viewModelScope)
     private val weekStart = MutableStateFlow(observeWeek.currentWeekStart())
     private val filter = MutableStateFlow(EvaluationFilter())
     private val selectedId = MutableStateFlow<String?>(null)
@@ -117,7 +116,10 @@ class CalendarViewModel @Inject constructor(
     fun selectCourse(courseId: String?) = filter.update { it.copy(courseId = courseId) }
 
     fun open(entry: CalendarEntry) { selectedId.value = entry.id }
-    fun close() { selectedId.value = null }
+    fun close() {
+        selectedId.value = null
+        aiContent.clearNotice()
+    }
 
     fun openStudy(entry: StudyBlockEntry) { selectedStudyId.value = entry.block.id }
     fun closeStudy() { selectedStudyId.value = null }

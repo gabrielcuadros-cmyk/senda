@@ -44,11 +44,11 @@ import org.junit.Test
 import java.io.IOException
 import java.time.Duration
 import kotlin.random.Random
-import com.fuerzasalvaje.senda.domain.model.PdfDigestStatus
-import com.fuerzasalvaje.senda.domain.usecase.simulacrum.PdfNotReadyException
-import com.fuerzasalvaje.senda.testing.FakePdfDigestRepository
-import com.fuerzasalvaje.senda.testing.FakePdfDigestScheduler
-import com.fuerzasalvaje.senda.testing.pdfDigest
+import com.fuerzasalvaje.senda.domain.engine.PdfMarkdown
+import com.fuerzasalvaje.senda.domain.model.Exam
+import com.fuerzasalvaje.senda.domain.model.PdfText
+import com.fuerzasalvaje.senda.domain.usecase.pdf.ExtractPdfMarkdownUseCase
+import com.fuerzasalvaje.senda.testing.FakePdfTextExtractor
 
 class SimulacrumUseCasesTest {
 
@@ -60,13 +60,13 @@ class SimulacrumUseCasesTest {
     private val recommendations = FakeRecommendationRepository()
     private val prefetcher = FakeQuestionPrefetcher()
     private val logger = FakeAiLogger()
-    private val digests = FakePdfDigestRepository()
-    private val digestScheduler = FakePdfDigestScheduler()
+    private val extractor = FakePdfTextExtractor()
 
     private val batches = GenerateQuestionBatchesUseCase(gemini, logger, Random(3))
     private val bank = QuestionBankUseCase(questions, simulacra)
     private val generate = GenerateCourseQuestionsUseCase(
-        questions, courses, CourseMaterialUseCase(evaluations, digests), batches, testClock, digestScheduler,
+        questions, courses, CourseMaterialUseCase(evaluations, ExtractPdfMarkdownUseCase(extractor, logger, testClock)),
+        batches, testClock, logger,
     )
     private val prepare = PrepareQuestionsUseCase(bank, generate)
     private val start = StartSimulacrumUseCase(bank, prepare, simulacra, prefetcher, testClock, Random(7))
@@ -210,15 +210,15 @@ class SimulacrumUseCasesTest {
     }
 
     @Test
-    fun `exam syllabus, lab guides and the PDF summaries are the material, never the PDFs`() = runTest {
+    fun `exam syllabus, lab guides and the PDF Markdown are the material, as text only`() = runTest {
         evaluations.seed(
-            exam("Parcial 1", 30).copy(syllabus = "Unidad 2", syllabusPdfPath = "/files/pdfs/temario.pdf"),
+            exam("Parcial 1", 30).copy(
+                syllabus = "Unidad 2", syllabusPdfPath = "/files/pdfs/temario.pdf",
+                syllabusPdfMarkdown = "## Diapositiva 3\n- Ley de Ohm: V = I x R",
+            ),
             Lab(id = "lab", courseId = "c1", title = "Péndulo", guideNumber = "3", difficulty = 2, createdAt = TEST_NOW,
-                dueAt = TEST_NOW + Duration.ofDays(2), guidePdfPath = "/files/pdfs/guia.pdf"),
-        )
-        digests.seed(
-            pdfDigest("Parcial 1", "temario.pdf", summary = "- Ley de Ohm: V = I x R (diap. 3)"),
-            pdfDigest("lab", "guia.pdf", summary = "- Periodo T = 2 s con L = 1 m (pág. 2)"),
+                dueAt = TEST_NOW + Duration.ofDays(2), guidePdfPath = "/files/pdfs/guia.pdf",
+                guidePdfMarkdown = "## Página 2\n- Periodo T = 2 s con L = 1 m"),
         )
         perBatch(topic = "péndulo")
 
@@ -226,61 +226,73 @@ class SimulacrumUseCasesTest {
 
         val request = gemini.lastRequest!!
         assertEquals("Parcial 1: Unidad 2\nLaboratorio 3 Péndulo", request.syllabus)
-        assertTrue(request.studyDigest.contains("V = I x R (diap. 3)"))
-        assertTrue(request.studyDigest.contains("T = 2 s con L = 1 m (pág. 2)"))
+        assertTrue(request.pdfMarkdown.contains("# PDF de \"Parcial 1\"\n## Diapositiva 3\n- Ley de Ohm: V = I x R"))
+        assertTrue(request.pdfMarkdown.contains("## Página 2\n- Periodo T = 2 s con L = 1 m"))
+        assertTrue(extractor.calls.isEmpty())
     }
 
     @Test
-    fun `a summary made on another device is used without the local PDF`() = runTest {
-        evaluations.seed(exam("Parcial 1", 30)) // no syllabus and the PDF is not on this device
-        digests.seed(pdfDigest("Parcial 1", "temario.pdf", summary = "- Ley de Ohm: V = I x R (diap. 3)"))
+    fun `Markdown synced from another device is used without the local PDF`() = runTest {
+        evaluations.seed(exam("Parcial 1", 30).copy(syllabusPdfMarkdown = "## Diapositiva 3\n- Ley de Ohm: V = I x R"))
         perBatch(topic = "ley de ohm")
 
         prepare("c1", 5).getOrThrow()
 
-        assertTrue(gemini.lastRequest!!.studyDigest.contains("Ley de Ohm"))
+        assertTrue(gemini.lastRequest!!.pdfMarkdown.contains("Ley de Ohm"))
     }
 
     @Test
-    fun `questions wait while a PDF is being read, and a missing summary is started`() = runTest {
-        evaluations.seed(
-            exam("Parcial 1", 30).copy(syllabus = "Unidad 2", syllabusPdfPath = "/files/pdfs/temario.pdf"),
-            exam("Parcial 2", 40).copy(syllabus = "Unidad 3", syllabusPdfPath = "/files/pdfs/nuevo.pdf"),
-        )
-        digests.seed(
-            pdfDigest("Parcial 1", "temario.pdf", status = PdfDigestStatus.RETRYING),
-            pdfDigest("Parcial 2", "anterior.pdf"), // summary of a PDF that was replaced
-        )
+    fun `a PDF attached before the Markdown existed is read once on the device and kept`() = runTest {
+        evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Ley de Ohm", syllabusPdfPath = "/files/pdfs/temario.pdf"))
+        perBatch(topic = "resistencia")
 
-        val error = prepare("c1", 5).exceptionOrNull() as PdfNotReadyException
+        prepare("c1", 5).getOrThrow()
+        RefillQuestionBankUseCase(bank, generate)("c1", fresh = true).getOrThrow()
 
-        assertEquals(setOf("Parcial 1", "Parcial 2"), error.evaluationIds.toSet())
-        assertEquals(setOf("Parcial 1" to false, "Parcial 2" to false), digestScheduler.scheduled.toSet())
-        assertEquals(0, gemini.generateCalls)
+        assertEquals(listOf("/files/pdfs/temario.pdf"), extractor.calls)
+        val stored = evaluations.items.value.values.single() as Exam
+        assertTrue(stored.syllabusPdfMarkdown.startsWith("## Diapositiva 1\n- Ley de Ohm"))
+        assertTrue(gemini.lastRequest!!.pdfMarkdown.contains("## Diapositiva 2"))
     }
 
     @Test
-    fun `a failed summary does not block and questions come from the syllabus`() = runTest {
-        evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Cinemática y dinámica", syllabusPdfPath = "/files/pdfs/temario.pdf"))
-        digests.seed(pdfDigest("Parcial 1", "temario.pdf", status = PdfDigestStatus.FAILED))
+    fun `a PDF without readable text is never sent and questions come from the syllabus`() = runTest {
+        extractor.result = Result.success(PdfText(listOf("12", "", "Tecsup")))
+        evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Cinemática y dinámica", syllabusPdfPath = "/files/pdfs/escaneado.pdf"))
         perBatch()
 
         prepare("c1", 5).getOrThrow()
 
-        assertEquals("", gemini.lastRequest!!.studyDigest)
+        assertEquals("", gemini.lastRequest!!.pdfMarkdown)
+        assertEquals("Parcial 1: Cinemática y dinámica", gemini.lastRequest!!.syllabus)
+        assertTrue(logger.lines.any { it.contains("PDF without readable text") })
     }
 
     @Test
-    fun `prefetch waits for the PDF summary, a refill ends and a top-up retries`() = runTest {
-        evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Unidad 2", syllabusPdfPath = "/files/pdfs/temario.pdf"))
-        digests.seed(pdfDigest("Parcial 1", "temario.pdf", status = PdfDigestStatus.READING))
-        val run = RunPrefetchUseCase(RefillQuestionBankUseCase(bank, generate), TopUpSimulacrumUseCase(simulacra, bank, generate), logger)
-        simulacra.seed(Simulacrum(id = "s1", courseId = "c1", questionIds = emptyList(), startedAt = TEST_NOW))
+    fun `several PDFs share the 12000 character budget`() = runTest {
+        val long = (1..120).joinToString("\n\n") { "## Diapositiva $it\n- Tema $it: velocidad v = $it m/s en el tramo $it" }
+        evaluations.seed(
+            exam("Parcial 1", 30).copy(syllabusPdfMarkdown = long),
+            exam("Parcial 2", 30).copy(syllabusPdfMarkdown = long),
+        )
+        perBatch(topic = "velocidad")
 
-        assertEquals(PrefetchOutcome.SUCCESS, run(PrefetchJob("c1", fresh = true)))
-        assertEquals(PrefetchOutcome.RETRY, run(PrefetchJob("c1", simulacrumId = "s1", desired = 5)))
-        assertEquals(0, gemini.generateCalls)
-        assertTrue(logger.lines.any { it.contains("Prefetch waits for 1 PDF summary") })
+        prepare("c1", 5).getOrThrow()
+
+        val headers = "# PDF de \"Parcial 1\"\n".length * 2 + 2
+        assertTrue(gemini.lastRequest!!.pdfMarkdown.length <= PdfMarkdown.MAX_CHARS + headers)
+    }
+
+    @Test
+    fun `the log has sizes and times of the material, never its content`() = runTest {
+        evaluations.seed(exam("Parcial 1", 30).copy(syllabus = "Unidad 2", syllabusPdfMarkdown = "## Diapositiva 3\n- Ley de Ohm: V = I x R"))
+        perBatch(topic = "ley de ohm")
+
+        prepare("c1", 5).getOrThrow()
+
+        val line = logger.lines.single { it.contains("Question material") }
+        assertTrue(line.contains("pdfChars=") && line.contains("sentChars=") && line.contains(" ms"))
+        assertTrue(logger.lines.none { it.contains("Ley de Ohm") || it.contains("V = I x R") })
     }
 
     @Test
@@ -386,7 +398,8 @@ class SimulacrumUseCasesTest {
         save(exam("e0", 30)).getOrThrow()                    // no material
         save(withSyllabus).getOrThrow()                       // new material
         save(withSyllabus.copy(title = "Parcial 1")).getOrThrow() // same material
-        save(Lab(id = "l1", courseId = "c1", title = "Lab", difficulty = 2, createdAt = TEST_NOW, dueAt = TEST_NOW, guidePdfPath = "/g.pdf")).getOrThrow()
+        save(Lab(id = "l1", courseId = "c1", title = "Lab", difficulty = 2, createdAt = TEST_NOW, dueAt = TEST_NOW,
+            guidePdfPath = "/g.pdf", guidePdfMarkdown = "## Página 1\n- Péndulo simple")).getOrThrow()
 
         assertEquals(listOf("c1" to true, "c1" to true), prefetcher.refills)
     }

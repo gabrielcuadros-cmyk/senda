@@ -34,8 +34,5 @@ data class RetryPolicy(
 ) {
     companion object {
         const val CALL_TIMEOUT_MILLIS = 25_000L
-
-        /** The one-time PDF summary reads the whole document: it gets 120 s per call. */
-        const val DIGEST_TIMEOUT_MILLIS = 120_000L
     }
 }

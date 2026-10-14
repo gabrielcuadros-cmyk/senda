@@ -22,8 +22,12 @@ import com.fuerzasalvaje.senda.domain.usecase.evaluation.DeleteEvaluationUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ObserveEvaluationUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.RescheduleEvaluationUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.SaveEvaluationUseCase
+import com.fuerzasalvaje.senda.domain.usecase.pdf.ExtractPdfMarkdownUseCase
+import com.fuerzasalvaje.senda.domain.usecase.pdf.PdfExtraction
 import com.fuerzasalvaje.senda.domain.model.localPdfPath
 import com.fuerzasalvaje.senda.domain.model.mainDate
+import com.fuerzasalvaje.senda.domain.model.pdfMarkdown
+import com.fuerzasalvaje.senda.domain.model.pdfSummarized
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +49,7 @@ class EvaluationFormViewModel @Inject constructor(
     private val saveEvaluation: SaveEvaluationUseCase,
     private val deleteEvaluation: DeleteEvaluationUseCase,
     private val storage: DocumentStorage,
+    private val extractPdf: ExtractPdfMarkdownUseCase,
     private val clock: Clock,
 ) : ViewModel() {
 
@@ -97,6 +102,8 @@ class EvaluationFormViewModel @Inject constructor(
                 studyHoursEdited = evaluation.studyHours != StudyHoursEstimator.suggested(evaluation.difficulty),
                 status = evaluation.status,
                 pdfPath = evaluation.localPdfPath,
+                pdfMarkdown = evaluation.pdfMarkdown,
+                pdfSummarized = evaluation.pdfSummarized,
             )
             when (evaluation) {
                 is Exam -> common.copy(
@@ -126,6 +133,9 @@ class EvaluationFormViewModel @Inject constructor(
             }
         }
         refreshWeightWarning()
+        // A PDF attached before its text was extracted: read it now, on the device.
+        val path = evaluation.localPdfPath
+        if (path != null && evaluation.pdfMarkdown.isBlank()) extract(path)
     }
 
     // Common fields
@@ -176,7 +186,7 @@ class EvaluationFormViewModel @Inject constructor(
     }
     fun removeTool(index: Int) = _state.update { it.copy(tools = it.tools.filterIndexed { i, _ -> i != index }) }
 
-    /** Copies the picked PDF into internal storage (D-11). */
+    /** Copies the picked PDF into internal storage (D-11) and turns it into Markdown on the device. */
     fun onPdfPicked(uri: String) {
         _state.update { it.copy(importingPdf = true) }
         viewModelScope.launch {
@@ -186,13 +196,38 @@ class EvaluationFormViewModel @Inject constructor(
                     // A copy made in this session and replaced again is no longer needed.
                     if (previous != null && previous != original?.localPdfPath) storage.delete(previous)
                     _state.update { it.copy(importingPdf = false, pdfPath = path) }
+                    extract(path)
                 },
                 onFailure = { _state.update { it.copy(importingPdf = false, message = "No se pudo copiar el PDF.") } },
             )
         }
     }
 
-    fun removePdf() = _state.update { it.copy(pdfPath = null) }
+    /** "Volver a extraer del PDF": replaces the edited text with a fresh reading of the file. */
+    fun reextractPdf() {
+        _state.value.pdfPath?.let(::extract)
+    }
+
+    fun onPdfMarkdown(value: String) = _state.update { it.copy(pdfMarkdown = value) }
+
+    fun removePdf() = _state.update { it.copy(pdfPath = null, pdfMarkdown = "", pdfSummarized = false, pdfNoText = false) }
+
+    private fun extract(path: String) {
+        if (_state.value.extractingPdf) return
+        _state.update { it.copy(extractingPdf = true) }
+        viewModelScope.launch {
+            val result = extractPdf(path, _state.value.syllabus)
+            _state.update { s ->
+                // The student may have removed or replaced the PDF meanwhile.
+                if (s.pdfPath != path) return@update s.copy(extractingPdf = false)
+                when (result) {
+                    is PdfExtraction.Ready -> s.copy(extractingPdf = false, pdfMarkdown = result.markdown, pdfSummarized = result.summarized, pdfNoText = false)
+                    is PdfExtraction.NoText -> s.copy(extractingPdf = false, pdfMarkdown = "", pdfSummarized = false, pdfNoText = true)
+                    is PdfExtraction.Failed -> s.copy(extractingPdf = false, message = "No se pudo leer el texto del PDF.")
+                }
+            }
+        }
+    }
 
     // Project
 
@@ -297,12 +332,14 @@ class EvaluationFormViewModel @Inject constructor(
                 studyHours = s.studyHours, status = s.status, createdAt = createdAt,
                 startAt = requireNotNull(s.startInstant(zone)), endAt = s.endInstant(zone),
                 room = s.room.trim(), examType = s.examType, syllabus = s.syllabus.trim(), syllabusPdfPath = s.pdfPath,
+                syllabusPdfMarkdown = s.pdfMarkdown.trim(), syllabusPdfSummarized = s.pdfSummarized,
             )
             EvaluationType.LAB -> Lab(
                 id = id, courseId = courseId, title = title, weightPercent = weight, difficulty = s.difficulty,
                 studyHours = s.studyHours, status = s.status, createdAt = createdAt,
                 guideNumber = s.guideNumber.trim(), dueAt = requireNotNull(s.startInstant(zone)), endAt = s.endInstant(zone),
                 requiredTools = s.tools, modality = s.modality, guidePdfPath = s.pdfPath,
+                guidePdfMarkdown = s.pdfMarkdown.trim(), guidePdfSummarized = s.pdfSummarized,
             )
             EvaluationType.PROJECT -> Project(
                 id = id, courseId = courseId, title = title, weightPercent = weight, difficulty = s.difficulty,

@@ -7,8 +7,13 @@ import com.fuerzasalvaje.senda.domain.model.AuthError
 import com.fuerzasalvaje.senda.domain.model.Exam
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
 import com.fuerzasalvaje.senda.domain.model.Lab
+import com.fuerzasalvaje.senda.domain.engine.PdfMarkdown
+import com.fuerzasalvaje.senda.domain.model.Evaluation
 import com.fuerzasalvaje.senda.domain.model.localPdfPath
-import com.fuerzasalvaje.senda.domain.model.pdfKeyOf
+import com.fuerzasalvaje.senda.domain.model.pdfMarkdown
+import com.fuerzasalvaje.senda.domain.model.withPdfMarkdown
+import com.fuerzasalvaje.senda.domain.usecase.pdf.ExtractPdfMarkdownUseCase
+import com.fuerzasalvaje.senda.domain.usecase.pdf.PdfExtraction
 import com.fuerzasalvaje.senda.domain.model.Question
 import com.fuerzasalvaje.senda.domain.model.QuestionReport
 import com.fuerzasalvaje.senda.domain.model.QuestionRequest
@@ -19,8 +24,6 @@ import com.fuerzasalvaje.senda.domain.repository.AiLogger
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
 import com.fuerzasalvaje.senda.domain.repository.GeminiService
-import com.fuerzasalvaje.senda.domain.repository.PdfDigestRepository
-import com.fuerzasalvaje.senda.domain.repository.PdfDigestScheduler
 import com.fuerzasalvaje.senda.domain.repository.QuestionPrefetcher
 import com.fuerzasalvaje.senda.domain.repository.QuestionRepository
 import com.fuerzasalvaje.senda.domain.repository.SimulacrumRepository
@@ -39,29 +42,24 @@ import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.random.Random
 
-/** The syllabus is missing or too short and there is no PDF: the student must write the topics. */
+/** The syllabus is missing or too short and there is no PDF text: the student must write the topics. */
 class MissingSyllabusException : IllegalStateException("The course has no usable syllabus or PDF")
 
 /** Gemini answered, but fewer than [SendaRules.MIN_QUESTIONS_TO_START] questions passed every check. */
 class NoValidQuestionsException(val received: Int, val valid: Int) :
     IllegalStateException("Only $valid of $received generated questions were valid")
 
-/** A PDF of the course is still being read and summarized: questions wait for it so they come from its content. */
-class PdfNotReadyException(val evaluationIds: List<String>) :
-    IllegalStateException("${evaluationIds.size} PDF(s) still being summarized")
-
 /**
- * What the AI studies from (D-11): the exams' syllabus, the lab titles and the study summary of every exam and lab
- * PDF. [pendingPdfs] are the evaluations whose local PDF has no up-to-date summary yet.
+ * What the AI studies from, as text only (D-11): the exams' syllabus, the lab titles and the Markdown made on the
+ * device from every exam and lab PDF ("## Diapositiva N" / "## Página N" sections).
  */
 data class CourseMaterial(
     val text: String,
     val syllabusChars: Int,
-    val studyDigest: String = "",
-    val pendingPdfs: List<String> = emptyList(),
+    val pdfMarkdown: String = "",
 ) {
-    /** Too little to generate meaningful questions (fewer than 15 characters and no PDF summary). */
-    val isInsufficient: Boolean get() = syllabusChars < MIN_SYLLABUS_CHARS && studyDigest.isBlank()
+    /** Too little to generate meaningful questions (fewer than 15 characters and no PDF text). */
+    val isInsufficient: Boolean get() = syllabusChars < MIN_SYLLABUS_CHARS && pdfMarkdown.isBlank()
 
     companion object {
         const val MIN_SYLLABUS_CHARS = 15
@@ -70,33 +68,38 @@ data class CourseMaterial(
 
 class CourseMaterialUseCase @Inject constructor(
     private val evaluations: EvaluationRepository,
-    private val digests: PdfDigestRepository,
+    private val extractPdf: ExtractPdfMarkdownUseCase,
 ) {
     suspend operator fun invoke(courseId: String): CourseMaterial {
-        val list = evaluations.observeByCourse(courseId).first()
-        val digestById = digests.observeByCourse(courseId).first().associateBy { it.evaluationId }
-        // A summary counts when it matches the PDF on this device, or when the PDF lives on another device.
-        val current = list.mapNotNull { evaluation ->
-            val digest = digestById[evaluation.id] ?: return@mapNotNull null
-            val path = evaluation.localPdfPath
-            if (path == null || digest.pdfKey == pdfKeyOf(path)) evaluation.id to digest else null
-        }.toMap()
-        // A failed summary does not block: the questions then come from the syllabus.
-        val pending = list.filter { it.localPdfPath != null && current[it.id].let { digest -> digest == null || digest.isPending } }
-        val ready = list.mapNotNull { evaluation -> current[evaluation.id]?.takeIf { it.isReady }?.let { evaluation to it } }
-
+        val list = evaluations.observeByCourse(courseId).first().map { backfill(it) }
         val exams = list.filterIsInstance<Exam>()
         val labs = list.filterIsInstance<Lab>()
         val withSyllabus = exams.filter { it.syllabus.isNotBlank() }
-        val labsWithGuide = labs.filter { it.guidePdfPath != null || current[it.id]?.isReady == true }
+        val labsWithGuide = labs.filter { it.guidePdfPath != null || it.guidePdfMarkdown.isNotBlank() }
         val lines = withSyllabus.map { "${it.title}: ${it.syllabus.trim()}" } +
             labsWithGuide.map { lab -> "Laboratorio ${lab.guideNumber.ifBlank { "" }} ${lab.title}".replace("  ", " ").trim() }
+        // Several PDFs share the same budget, so the request stays as small as one PDF.
+        val withPdf = list.filter { it.pdfMarkdown.isNotBlank() }
+        val budget = if (withPdf.isEmpty()) 0 else PdfMarkdown.MAX_CHARS / withPdf.size
+        val pdfText = withPdf.joinToString("\n\n") { evaluation ->
+            val syllabus = (evaluation as? Exam)?.syllabus.orEmpty()
+            "# PDF de \"${evaluation.title}\"\n" + PdfMarkdown.fit(evaluation.pdfMarkdown, syllabus, budget).text
+        }
         return CourseMaterial(
             text = lines.joinToString("\n"),
             syllabusChars = withSyllabus.sumOf { it.syllabus.trim().length },
-            studyDigest = ready.joinToString("\n\n") { (evaluation, digest) -> "PDF de \"${evaluation.title}\":\n${digest.summary}" },
-            pendingPdfs = pending.map { it.id },
+            pdfMarkdown = pdfText,
         )
+    }
+
+    /** PDFs attached before the Markdown existed are read once here, on the device, and the result is kept. */
+    private suspend fun backfill(evaluation: Evaluation): Evaluation {
+        val path = evaluation.localPdfPath
+        if (path == null || evaluation.pdfMarkdown.isNotBlank()) return evaluation
+        val result = extractPdf(path, (evaluation as? Exam)?.syllabus.orEmpty()) as? PdfExtraction.Ready ?: return evaluation
+        val updated = evaluation.withPdfMarkdown(result.markdown, result.summarized)
+        evaluations.save(updated)
+        return updated
     }
 }
 
@@ -116,8 +119,8 @@ class GenerateQuestionBatchesUseCase(
     suspend operator fun invoke(base: QuestionRequest, total: Int, existingStatements: List<String> = emptyList()): Result<List<GeneratedQuestion>> {
         if (total <= 0) return Result.success(emptyList())
         val sizes = batchSizes(total)
-        // Relevance is judged against everything the model received: the syllabus and the PDF summaries.
-        val keywords = QuestionQuality.keywords(base.syllabus + "\n" + base.studyDigest)
+        // Relevance is judged against everything the model received: the syllabus and the PDF Markdown.
+        val keywords = QuestionQuality.keywords(base.syllabus + "\n" + base.pdfMarkdown)
         val avoid = existingStatements.takeLast(MAX_AVOID)
         val results = coroutineScope {
             sizes.mapIndexed { index, size ->
@@ -245,9 +248,8 @@ class QuestionBankUseCase @Inject constructor(
 }
 
 /**
- * Generates [count] new questions for a course from its material (or typed [topics]) and stores them. While a PDF
- * of the course is still being summarized it fails with [PdfNotReadyException] (and makes sure the summary is on
- * its way), so the questions come from the PDF content.
+ * Generates [count] new questions for a course from its material (or typed [topics]) and stores them. Only text
+ * reaches Gemini: the syllabus and the PDF Markdown, the same flow with or without a PDF.
  */
 class GenerateCourseQuestionsUseCase @Inject constructor(
     private val questions: QuestionRepository,
@@ -255,14 +257,11 @@ class GenerateCourseQuestionsUseCase @Inject constructor(
     private val material: CourseMaterialUseCase,
     private val batches: GenerateQuestionBatchesUseCase,
     private val clock: Clock,
-    private val pdfDigests: PdfDigestScheduler = PdfDigestScheduler.None,
+    private val logger: AiLogger,
 ) {
     suspend operator fun invoke(courseId: String, count: Int, topics: String? = null): Result<List<Question>> {
+        val started = clock.millis()
         val courseMaterial = material(courseId)
-        if (courseMaterial.pendingPdfs.isNotEmpty()) {
-            courseMaterial.pendingPdfs.forEach { pdfDigests.schedule(it) }
-            return Result.failure(PdfNotReadyException(courseMaterial.pendingPdfs))
-        }
         val typed = topics?.trim().orEmpty()
         if (typed.length < CourseMaterial.MIN_SYLLABUS_CHARS && courseMaterial.isInsufficient) {
             return Result.failure(MissingSyllabusException())
@@ -270,7 +269,11 @@ class GenerateCourseQuestionsUseCase @Inject constructor(
         val text = if (typed.length >= CourseMaterial.MIN_SYLLABUS_CHARS) typed else courseMaterial.text
         val courseName = courses.observeById(courseId).firstOrNull()?.name.orEmpty()
         val existing = questions.observeByCourse(courseId).first().map { q -> listOfNotNull(q.scenario, q.statement).joinToString(" ") }
-        val request = QuestionRequest(courseName, text, count, studyDigest = courseMaterial.studyDigest)
+        val request = QuestionRequest(courseName, text, count, pdfMarkdown = courseMaterial.pdfMarkdown)
+        logger.info(
+            "Question material: course=$courseId syllabusChars=${text.length} pdfChars=${request.pdfMarkdown.length} " +
+                "sentChars=${text.length + request.pdfMarkdown.length} in ${clock.millis() - started} ms"
+        )
         return batches(request, count, existing).mapCatching { generated ->
             val now = clock.instant()
             generated.map {
@@ -285,7 +288,7 @@ class GenerateCourseQuestionsUseCase @Inject constructor(
                     source = QuestionSource.AI,
                     createdAt = now,
                 ).also { question -> questions.save(question).getOrThrow() }
-            }
+            }.also { logger.info("Questions ready: course=$courseId count=${it.size} in ${clock.millis() - started} ms") }
         }
     }
 }
@@ -385,8 +388,7 @@ enum class PrefetchOutcome { SUCCESS, RETRY, FAIL }
 /**
  * Logic of the prefetch worker: errors that more attempts can fix (network, timeouts, overload, quotas, too few
  * valid questions) are retried with backoff until they succeed; missing material, an invalid API key or a
- * signed-out student are final. While a PDF is being summarized a refill ends quietly (the digest worker
- * refills the bank when the summary is ready) and a top-up retries, since a student is waiting for it.
+ * signed-out student are final.
  */
 class RunPrefetchUseCase @Inject constructor(
     private val refill: RefillQuestionBankUseCase,
@@ -401,10 +403,6 @@ class RunPrefetchUseCase @Inject constructor(
         }
         val error = result.exceptionOrNull() ?: return PrefetchOutcome.SUCCESS.also {
             logger.info("Prefetch done for course ${job.courseId}: +${result.getOrNull()} questions")
-        }
-        if (error is PdfNotReadyException) {
-            logger.info("Prefetch waits for ${error.evaluationIds.size} PDF summary(ies) of course ${job.courseId}")
-            return if (job.simulacrumId != null) PrefetchOutcome.RETRY else PrefetchOutcome.SUCCESS
         }
         val final = error is MissingSyllabusException ||
             (error is AiError.Configuration && error.invalidKey) ||

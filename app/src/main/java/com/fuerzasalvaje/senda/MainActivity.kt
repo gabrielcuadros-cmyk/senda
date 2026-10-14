@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.fuerzasalvaje.senda.data.notifications.SendaNotifier
 import com.fuerzasalvaje.senda.domain.model.NotificationTarget
 import com.fuerzasalvaje.senda.ui.navigation.DeepLinks
@@ -19,6 +20,7 @@ import dagger.hilt.android.AndroidEntryPoint
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         // Only a fresh launch carries the target; a recreated activity already handled it.
         if (savedInstanceState == null) handleTarget(intent)

@@ -24,3 +24,6 @@ app/google-services.json
 
 # OS
 .DS_Store
+
+# Release APKs shared with the team
+Senda-v*.apk

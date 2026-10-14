@@ -32,7 +32,7 @@ android {
         minSdk = 26
         targetSdk = 37
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -47,8 +47,22 @@ android {
         buildConfigField("String", "AI_PROVIDER", localProperty("AI_PROVIDER", "apikey").asBuildConfigString())
     }
 
+    // Release keystore lives outside the repo; its path and passwords come from local.properties.
+    val releaseStoreFile = localProperty("RELEASE_STORE_FILE", "")
+    signingConfigs {
+        create("release") {
+            if (releaseStoreFile.isNotEmpty()) storeFile = file(releaseStoreFile)
+            storePassword = localProperty("RELEASE_STORE_PASSWORD", "")
+            keyAlias = localProperty("RELEASE_KEY_ALIAS", "")
+            keyPassword = localProperty("RELEASE_KEY_PASSWORD", "")
+        }
+    }
+
     buildTypes {
         release {
+            // Without a keystore (e.g. a teammate's checkout) release stays unsigned instead of failing.
+            if (releaseStoreFile.isNotEmpty()) signingConfig = signingConfigs.getByName("release")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             optimization {
                 enable = true
                 packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
@@ -74,6 +88,7 @@ dependencies {
     // AndroidX and Compose
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

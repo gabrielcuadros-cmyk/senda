@@ -106,10 +106,20 @@ data class StressCheckIn(
     }
 }
 
-/** Reminder preferences (D-13, D-15). */
+/**
+ * Reminder preferences (D-13, D-15). Evaluation reminders are 3 days, 1 day and 2 hours before by default;
+ * the daily summary (07:30) and the rest reminder (22:30) keep their fixed times.
+ */
 data class ReminderSetting(
     val enabled: Boolean = true,
-    val evaluationOffsets: List<Duration> = listOf(Duration.ofDays(3), Duration.ofDays(1), Duration.ofHours(2)),
+    val evaluationOffsets: List<Duration> = DEFAULT_OFFSETS,
+    val dailySummaryEnabled: Boolean = true,
+    val restReminderEnabled: Boolean = true,
+    val examRoutineEnabled: Boolean = true,
     val dailySummaryTime: LocalTime = LocalTime.of(7, 30),
     val restReminderTime: LocalTime = LocalTime.of(22, 30),
-)
+) {
+    companion object {
+        val DEFAULT_OFFSETS: List<Duration> = listOf(Duration.ofDays(3), Duration.ofDays(1), Duration.ofHours(2))
+    }
+}

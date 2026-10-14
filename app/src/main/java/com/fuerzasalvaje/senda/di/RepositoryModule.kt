@@ -1,6 +1,7 @@
 package com.fuerzasalvaje.senda.di
 
 import com.fuerzasalvaje.senda.data.local.LocalDocumentStorage
+import com.fuerzasalvaje.senda.data.notifications.WorkManagerPomodoroAlarm
 import com.fuerzasalvaje.senda.data.remote.FirebaseSessionProvider
 import com.fuerzasalvaje.senda.data.remote.SessionProvider
 import com.fuerzasalvaje.senda.data.repository.AIRecommendationRepositoryImpl
@@ -8,6 +9,7 @@ import com.fuerzasalvaje.senda.data.repository.AuthRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.CourseRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.EvaluationRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.FirestoreAvailabilityRepository
+import com.fuerzasalvaje.senda.data.repository.FirestoreSettingsRepository
 import com.fuerzasalvaje.senda.data.repository.PomodoroSessionRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.QuestionRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.SimulacrumRepositoryImpl
@@ -20,8 +22,10 @@ import com.fuerzasalvaje.senda.domain.repository.AvailabilityRepository
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
 import com.fuerzasalvaje.senda.domain.repository.DocumentStorage
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
+import com.fuerzasalvaje.senda.domain.repository.PomodoroAlarm
 import com.fuerzasalvaje.senda.domain.repository.PomodoroSessionRepository
 import com.fuerzasalvaje.senda.domain.repository.QuestionRepository
+import com.fuerzasalvaje.senda.domain.repository.SettingsRepository
 import com.fuerzasalvaje.senda.domain.repository.SimulacrumRepository
 import com.fuerzasalvaje.senda.domain.repository.StressCheckInRepository
 import com.fuerzasalvaje.senda.domain.repository.StudyBlockRepository
@@ -51,6 +55,8 @@ abstract class RepositoryModule {
     @Binds abstract fun bindAuthRepository(impl: AuthRepositoryImpl): AuthRepository
     @Binds abstract fun bindDocumentStorage(impl: LocalDocumentStorage): DocumentStorage
     @Binds abstract fun bindAvailabilityRepository(impl: FirestoreAvailabilityRepository): AvailabilityRepository
+    @Binds abstract fun bindSettingsRepository(impl: FirestoreSettingsRepository): SettingsRepository
+    @Binds abstract fun bindPomodoroAlarm(impl: WorkManagerPomodoroAlarm): PomodoroAlarm
 
     @Binds abstract fun bindCourseRepository(impl: CourseRepositoryImpl): CourseRepository
     @Binds abstract fun bindEvaluationRepository(impl: EvaluationRepositoryImpl): EvaluationRepository

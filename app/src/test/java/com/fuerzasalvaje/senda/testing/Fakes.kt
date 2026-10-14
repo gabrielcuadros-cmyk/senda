@@ -4,6 +4,11 @@ import com.fuerzasalvaje.senda.domain.model.AIRecommendation
 import com.fuerzasalvaje.senda.domain.model.Availability
 import com.fuerzasalvaje.senda.domain.model.Course
 import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
+import com.fuerzasalvaje.senda.domain.model.Question
+import com.fuerzasalvaje.senda.domain.model.Simulacrum
+import com.fuerzasalvaje.senda.domain.repository.QuestionRepository
+import com.fuerzasalvaje.senda.domain.repository.SimulacrumRepository
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import com.fuerzasalvaje.senda.domain.model.StressCheckIn
 import com.fuerzasalvaje.senda.domain.model.StudyBlock
 import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
@@ -45,7 +50,7 @@ val TEST_NOW: Instant = Instant.parse("2026-10-12T13:00:00Z")
 val testClock: Clock = Clock.fixed(TEST_NOW, TEST_ZONE)
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class MainDispatcherRule(private val dispatcher: TestDispatcher = UnconfinedTestDispatcher()) : TestWatcher() {
+class MainDispatcherRule(val dispatcher: TestDispatcher = UnconfinedTestDispatcher()) : TestWatcher() {
     override fun starting(description: Description) = Dispatchers.setMain(dispatcher)
     override fun finished(description: Description) = Dispatchers.resetMain()
 }
@@ -103,15 +108,62 @@ class FakeAuthRepository(user: User? = User("u1", "Ana Torres", "ana@tecsup.edu.
 /** Returns [tipsResult]; records the last request so tests can check what was sent. */
 class FakeGeminiService(var tipsResult: Result<String> = Result.success("- Estudia **Física** primero")) : GeminiService {
     var lastTipsRequest: StudyTipsRequest? = null
+    var explainResult: Result<String> = Result.success("La respuesta correcta es **B**.")
+    var explainCalls = 0
+    var questionsResult: Result<List<GeneratedQuestion>> = Result.success((1..10).map(::generated))
+    var lastSyllabus: String? = null
+    var generateCalls = 0
+
     override suspend fun explainMistake(
         courseName: String, question: String, options: List<String>, correctAnswer: String, studentAnswer: String?,
-    ) = Result.success("Explicación")
+    ): Result<String> {
+        explainCalls++
+        return explainResult
+    }
     override suspend fun studyTips(request: StudyTipsRequest): Result<String> {
         lastTipsRequest = request
         return tipsResult
     }
-    override suspend fun generateQuestions(courseName: String, syllabus: String, count: Int) =
-        Result.success(emptyList<GeneratedQuestion>())
+    override suspend fun generateQuestions(courseName: String, syllabus: String, count: Int): Result<List<GeneratedQuestion>> {
+        generateCalls++
+        lastSyllabus = syllabus
+        return questionsResult
+    }
+}
+
+fun generated(n: Int) = GeneratedQuestion(
+    statement = "Pregunta $n",
+    options = listOf("A$n", "B$n", "C$n", "D$n"),
+    correctOptionIndex = 1,
+    explanation = "Porque B$n",
+    scenario = if (n % 3 == 0) "Caso $n" else null,
+)
+
+class FakeQuestionRepository : FakeOwnedRepository<Question>({ it.id }), QuestionRepository {
+    override fun observeByCourse(courseId: String): Flow<List<Question>> =
+        items.map { all -> all.values.filter { it.courseId == courseId } }
+}
+
+class FakeSimulacrumRepository : FakeOwnedRepository<Simulacrum>({ it.id }), SimulacrumRepository {
+    override fun observeByCourse(courseId: String): Flow<List<Simulacrum>> =
+        items.map { all -> all.values.filter { it.courseId == courseId } }
+}
+
+fun question(id: String, courseId: String = "c1", correct: Int = 1) = Question(
+    id = id, courseId = courseId, statement = "¿$id?", options = listOf("A", "B", "C", "D"),
+    correctOptionIndex = correct, explanation = "Explicación de $id", createdAt = TEST_NOW,
+)
+
+/** A clock that follows the virtual time of a test scheduler, so countdowns can be tested. */
+@OptIn(ExperimentalCoroutinesApi::class)
+class SchedulerClock(
+    private val scheduler: TestCoroutineScheduler,
+    private val base: Instant = TEST_NOW,
+    private val clockZone: ZoneId = TEST_ZONE,
+) : Clock() {
+    override fun getZone(): ZoneId = clockZone
+    override fun withZone(zone: ZoneId): Clock = SchedulerClock(scheduler, base, zone)
+    override fun instant(): Instant = base.plusMillis(scheduler.currentTime)
 }
 
 class FakeDocumentStorage : DocumentStorage {

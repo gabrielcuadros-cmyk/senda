@@ -373,11 +373,11 @@ Respuestas del Product Owner a los vacíos de la sección 8. Complementan la bas
 
 Datos del proyecto: `minSdk` 26 es correcto. Git y `.gitignore` se configuran en el siguiente paso.
 
-### Supuestos de implementación por confirmar
+### Supuestos de implementación (confirmados por el PO)
 
-Detalles que las decisiones no cubren. Se aplicarán así salvo indicación contraria:
+Detalles que las decisiones no cubren. El PO aprobó los 4 tal como están:
 
-1. **Proyectos de una fase (D-14 y D-17).** El número de fases es variable, así que "las 3 Entregadas" se lee como "todas las fases Entregadas".
-2. **Prioridad de un proyecto.** El TiempoRestante se calcula contra la próxima fase no entregada, y el peso es el del proyecto completo.
-3. **Día cargado.** Las entregas de proyecto no generan Cruce, pero sí cuentan para la alerta amarilla de "Día cargado".
-4. **Nivel de Preparación con menos de 3 simulacros.** Se usan los disponibles y los pesos se reescalan para sumar 1 (con dos: 0.625 y 0.375; con uno: 1).
+1. **Proyectos de una fase (D-14 y D-17).** *(Confirmado.)* El número de fases es variable, así que "las 3 Entregadas" se lee como "todas las fases Entregadas".
+2. **Prioridad de un proyecto.** *(Confirmado.)* El TiempoRestante se calcula contra la próxima fase no entregada, y el peso es el del proyecto completo.
+3. **Día cargado.** *(Confirmado.)* Las entregas de proyecto no generan Cruce, pero sí cuentan para la alerta amarilla de "Día cargado".
+4. **Nivel de Preparación con menos de 3 simulacros.** *(Confirmado.)* Se usan los disponibles y los pesos se reescalan para sumar 1 (con dos: 0.625 y 0.375; con uno: 1).

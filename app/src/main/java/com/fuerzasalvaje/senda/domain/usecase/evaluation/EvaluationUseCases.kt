@@ -8,6 +8,7 @@ import com.fuerzasalvaje.senda.domain.model.Lab
 import com.fuerzasalvaje.senda.domain.model.PhaseStatus
 import com.fuerzasalvaje.senda.domain.model.Project
 import com.fuerzasalvaje.senda.domain.model.localPdfPath
+import com.fuerzasalvaje.senda.domain.usecase.pdf.TrackPdfDigestUseCase
 import com.fuerzasalvaje.senda.domain.repository.DocumentStorage
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
 import com.fuerzasalvaje.senda.domain.repository.QuestionPrefetcher
@@ -31,17 +32,20 @@ data class SaveOutcome(val courseWeightTotal: Double? = null)
 
 /**
  * Creates or edits an evaluation. Exceeding 100 % in the course only warns (D-4). When an exam or lab gets new
- * study material (syllabus text or PDF), questions for its course start being prepared in the background.
+ * study material (syllabus text or PDF), questions for its course start being prepared in the background; a new
+ * PDF is first read and summarized ([TrackPdfDigestUseCase]).
  */
 class SaveEvaluationUseCase @Inject constructor(
     private val repository: EvaluationRepository,
     private val prefetcher: QuestionPrefetcher = QuestionPrefetcher.None,
+    private val trackPdf: TrackPdfDigestUseCase? = null,
 ) {
     suspend operator fun invoke(evaluation: Evaluation): Result<SaveOutcome> {
         val courseEvaluations = repository.observeByCourse(evaluation.courseId).first()
         val otherWeights = courseEvaluations.filter { it.id != evaluation.id }.map { it.weightPercent }
         val previous = courseEvaluations.firstOrNull { it.id == evaluation.id } ?: repository.observeById(evaluation.id).first()
         return repository.save(evaluation).map {
+            trackPdf?.onSaved(evaluation, previous)
             val material = materialKey(evaluation)
             if (material != null && material != previous?.let(::materialKey)) prefetcher.refill(evaluation.courseId, fresh = true)
             SaveOutcome(Validators.courseWeightTotalIfExceeded(otherWeights, evaluation.weightPercent))
@@ -93,14 +97,19 @@ class RescheduleEvaluationUseCase @Inject constructor(private val repository: Ev
     }
 }
 
-/** HU-09: deletes the evaluation, its local PDF and the study blocks planned for it (and so their alerts). */
+/**
+ * HU-09: deletes the evaluation, its local PDF and its summary, and the study blocks planned for it (and so their
+ * alerts).
+ */
 class DeleteEvaluationUseCase @Inject constructor(
     private val repository: EvaluationRepository,
     private val storage: DocumentStorage,
     private val studyBlocks: StudyBlockRepository,
+    private val trackPdf: TrackPdfDigestUseCase? = null,
 ) {
     suspend operator fun invoke(evaluation: Evaluation): Result<Unit> {
         evaluation.localPdfPath?.let { storage.delete(it) }
+        trackPdf?.onDeleted(evaluation.id)
         studyBlocks.observeAll().first().filter { it.evaluationId == evaluation.id }.forEach { studyBlocks.delete(it.id) }
         return repository.delete(evaluation.id)
     }

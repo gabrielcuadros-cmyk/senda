@@ -3,6 +3,7 @@ package com.fuerzasalvaje.senda.data.repository
 import com.fuerzasalvaje.senda.data.local.dao.AIRecommendationDao
 import com.fuerzasalvaje.senda.data.local.dao.CourseDao
 import com.fuerzasalvaje.senda.data.local.dao.EvaluationDao
+import com.fuerzasalvaje.senda.data.local.dao.PdfDigestDao
 import com.fuerzasalvaje.senda.data.local.dao.PomodoroSessionDao
 import com.fuerzasalvaje.senda.data.local.dao.QuestionDao
 import com.fuerzasalvaje.senda.data.local.dao.SimulacrumDao
@@ -11,6 +12,7 @@ import com.fuerzasalvaje.senda.data.local.dao.StudyBlockDao
 import com.fuerzasalvaje.senda.data.local.entity.AIRecommendationEntity
 import com.fuerzasalvaje.senda.data.local.entity.CourseEntity
 import com.fuerzasalvaje.senda.data.local.entity.EvaluationEntity
+import com.fuerzasalvaje.senda.data.local.entity.PdfDigestEntity
 import com.fuerzasalvaje.senda.data.local.entity.PomodoroSessionEntity
 import com.fuerzasalvaje.senda.data.local.entity.QuestionEntity
 import com.fuerzasalvaje.senda.data.local.entity.SimulacrumEntity
@@ -25,6 +27,7 @@ import com.fuerzasalvaje.senda.data.remote.SessionProvider
 import com.fuerzasalvaje.senda.data.remote.dto.AIRecommendationDto
 import com.fuerzasalvaje.senda.data.remote.dto.CourseDto
 import com.fuerzasalvaje.senda.data.remote.dto.EvaluationDto
+import com.fuerzasalvaje.senda.data.remote.dto.PdfDigestDto
 import com.fuerzasalvaje.senda.data.remote.dto.PomodoroSessionDto
 import com.fuerzasalvaje.senda.data.remote.dto.QuestionDto
 import com.fuerzasalvaje.senda.data.remote.dto.SimulacrumDto
@@ -33,6 +36,7 @@ import com.fuerzasalvaje.senda.data.remote.dto.StudyBlockDto
 import com.fuerzasalvaje.senda.domain.model.AIRecommendation
 import com.fuerzasalvaje.senda.domain.model.Course
 import com.fuerzasalvaje.senda.domain.model.Evaluation
+import com.fuerzasalvaje.senda.domain.model.PdfDigest
 import com.fuerzasalvaje.senda.domain.model.PomodoroSession
 import com.fuerzasalvaje.senda.domain.model.Question
 import com.fuerzasalvaje.senda.domain.model.Simulacrum
@@ -41,6 +45,7 @@ import com.fuerzasalvaje.senda.domain.model.StudyBlock
 import com.fuerzasalvaje.senda.domain.repository.AIRecommendationRepository
 import com.fuerzasalvaje.senda.domain.repository.CourseRepository
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
+import com.fuerzasalvaje.senda.domain.repository.PdfDigestRepository
 import com.fuerzasalvaje.senda.domain.repository.PomodoroSessionRepository
 import com.fuerzasalvaje.senda.domain.repository.QuestionRepository
 import com.fuerzasalvaje.senda.domain.repository.SimulacrumRepository
@@ -178,4 +183,22 @@ class StressCheckInRepositoryImpl @Inject constructor(
     override fun dtoOf(item: StressCheckIn) = item.toDto()
     override fun remoteDomainOf(dto: StressCheckInDto, id: String, local: StressCheckInEntity?) =
         dto.toDomain(id)
+}
+
+@Singleton
+class PdfDigestRepositoryImpl @Inject constructor(
+    session: SessionProvider,
+    firestore: FirebaseFirestore,
+    private val dao: PdfDigestDao,
+) : BaseOwnedRepository<PdfDigest, PdfDigestEntity, PdfDigestDto>(
+    session, firestore, dao, FirestorePaths.PDF_DIGESTS, PdfDigestDto::class.java,
+), PdfDigestRepository {
+    override fun idOf(item: PdfDigest) = item.id
+    override fun entityOf(item: PdfDigest, uid: String) = item.toEntity(uid)
+    override fun domainOf(entity: PdfDigestEntity) = entity.toDomain()
+    override fun dtoOf(item: PdfDigest) = item.toDto()
+
+    // Keeps the text extracted on this device (D-11).
+    override fun remoteDomainOf(dto: PdfDigestDto, id: String, local: PdfDigestEntity?) = dto.toDomain(id, local)
+    override fun observeByCourse(courseId: String) = observeList { uid -> dao.observeByCourse(uid, courseId) }
 }

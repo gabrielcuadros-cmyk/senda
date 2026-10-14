@@ -50,6 +50,7 @@ class CalendarViewModelTest {
         changeStatus = ChangeEvaluationStatusUseCase(evaluations),
         updateStudyBlock = UpdateStudyBlockUseCase(studyBlocks),
         clock = testClock,
+        observePdfDigests = com.fuerzasalvaje.senda.domain.usecase.pdf.ObservePdfDigestsUseCase(com.fuerzasalvaje.senda.testing.FakePdfDigestRepository()),
     )
 
     private suspend fun ReceiveTurbine<CalendarUiState>.awaitUntil(predicate: (CalendarUiState) -> Boolean): CalendarUiState {

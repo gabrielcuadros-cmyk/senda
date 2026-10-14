@@ -19,6 +19,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.util.Base64
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -49,10 +50,18 @@ class GeminiRestService @Inject constructor(
             .post(json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
             .build()
 
+        // The shared client stops at 25 s; a longer call (the PDF summary) gets its own limits on the same pool.
+        val callClient = prompt.timeoutMillis?.let { limit ->
+            client.newBuilder()
+                .callTimeout(limit, TimeUnit.MILLISECONDS)
+                .readTimeout(limit, TimeUnit.MILLISECONDS)
+                .writeTimeout(limit, TimeUnit.MILLISECONDS)
+                .build()
+        } ?: client
         val started = System.currentTimeMillis()
         val (code, responseText) = withContext(Dispatchers.IO) {
             try {
-                client.newCall(request).execute().use { it.code to it.body.string() }
+                callClient.newCall(request).execute().use { it.code to it.body.string() }
             } catch (e: InterruptedIOException) {
                 logger.warn("Gemini timeout after ${System.currentTimeMillis() - started} ms (model=$model)")
                 throw AiError.Timeout(e)

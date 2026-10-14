@@ -86,6 +86,7 @@ class HomeAndPlanViewModelTest {
         generateTips = GenerateStudyTipsUseCase(gemini, priorities, courses, blocks, sessions, recommendations, testClock),
         changeStatus = ChangeEvaluationStatusUseCase(evaluations),
         clock = testClock,
+        observePdfDigests = com.fuerzasalvaje.senda.domain.usecase.pdf.ObservePdfDigestsUseCase(com.fuerzasalvaje.senda.testing.FakePdfDigestRepository()),
     )
 
     private fun planViewModel() = StudyPlanViewModel(

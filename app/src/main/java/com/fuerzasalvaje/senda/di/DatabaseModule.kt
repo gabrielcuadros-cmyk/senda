@@ -29,4 +29,5 @@ object DatabaseModule {
     @Provides fun providePomodoroSessionDao(db: SendaDatabase) = db.pomodoroSessionDao()
     @Provides fun provideStudyBlockDao(db: SendaDatabase) = db.studyBlockDao()
     @Provides fun provideStressCheckInDao(db: SendaDatabase) = db.stressCheckInDao()
+    @Provides fun providePdfDigestDao(db: SendaDatabase) = db.pdfDigestDao()
 }

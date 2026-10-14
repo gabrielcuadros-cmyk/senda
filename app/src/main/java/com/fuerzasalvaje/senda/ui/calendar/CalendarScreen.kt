@@ -90,6 +90,7 @@ fun CalendarScreen(
     viewModel: CalendarViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val pdfDigests by viewModel.pdfDigests.collectAsStateWithLifecycle()
     val zone = viewModel.zone
 
     if (!state.loading && state.courses.isEmpty()) {
@@ -161,6 +162,7 @@ fun CalendarScreen(
             zone = zone,
             highlightedPhase = entry.phase,
             conflicts = state.conflicts.filter { conflict -> conflict.entries.any { it.id == entry.id } },
+            pdfStatus = pdfDigests[entry.evaluation.id]?.status,
             onDismiss = viewModel::close,
             onEdit = { viewModel.close(); onEditEvaluation(entry.evaluation.id) },
             onStatus = { viewModel.setStatus(entry.evaluation, it) },

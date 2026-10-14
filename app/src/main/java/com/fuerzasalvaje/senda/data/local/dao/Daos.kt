@@ -6,6 +6,7 @@ import androidx.room.Upsert
 import com.fuerzasalvaje.senda.data.local.entity.AIRecommendationEntity
 import com.fuerzasalvaje.senda.data.local.entity.CourseEntity
 import com.fuerzasalvaje.senda.data.local.entity.EvaluationEntity
+import com.fuerzasalvaje.senda.data.local.entity.PdfDigestEntity
 import com.fuerzasalvaje.senda.data.local.entity.PomodoroSessionEntity
 import com.fuerzasalvaje.senda.data.local.entity.QuestionEntity
 import com.fuerzasalvaje.senda.data.local.entity.SimulacrumEntity
@@ -150,5 +151,23 @@ interface StressCheckInDao : OwnedDao<StressCheckInEntity> {
     override suspend fun getById(ownerUid: String, id: String): StressCheckInEntity?
 
     @Query("DELETE FROM stress_checkins WHERE ownerUid = :ownerUid AND id = :id")
+    override suspend fun deleteById(ownerUid: String, id: String)
+}
+
+@Dao
+interface PdfDigestDao : OwnedDao<PdfDigestEntity> {
+    @Query("SELECT * FROM pdf_digests WHERE ownerUid = :ownerUid")
+    override fun observeAll(ownerUid: String): Flow<List<PdfDigestEntity>>
+
+    @Query("SELECT * FROM pdf_digests WHERE ownerUid = :ownerUid AND courseId = :courseId")
+    fun observeByCourse(ownerUid: String, courseId: String): Flow<List<PdfDigestEntity>>
+
+    @Query("SELECT * FROM pdf_digests WHERE ownerUid = :ownerUid AND id = :id")
+    override fun observeById(ownerUid: String, id: String): Flow<PdfDigestEntity?>
+
+    @Query("SELECT * FROM pdf_digests WHERE ownerUid = :ownerUid AND id = :id")
+    override suspend fun getById(ownerUid: String, id: String): PdfDigestEntity?
+
+    @Query("DELETE FROM pdf_digests WHERE ownerUid = :ownerUid AND id = :id")
     override suspend fun deleteById(ownerUid: String, id: String)
 }

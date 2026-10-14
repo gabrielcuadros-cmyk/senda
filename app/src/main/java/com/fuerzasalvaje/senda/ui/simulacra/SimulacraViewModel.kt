@@ -15,6 +15,7 @@ import com.fuerzasalvaje.senda.domain.usecase.course.ObserveCoursesUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.FinishSimulacrumUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.MissingSyllabusException
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.NoValidQuestionsException
+import com.fuerzasalvaje.senda.domain.usecase.simulacrum.PdfNotReadyException
 import com.fuerzasalvaje.senda.ui.components.aiErrorMessage
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.ObserveReadinessUseCase
 import com.fuerzasalvaje.senda.domain.usecase.simulacrum.StartSimulacrumUseCase
@@ -129,6 +130,8 @@ class SimulacraViewModel @Inject constructor(
         fun errorMessage(error: Throwable): String = when (error) {
             is NoValidQuestionsException ->
                 "La IA solo generó ${error.valid} preguntas válidas de ${error.received}. Inténtalo otra vez o detalla más el temario."
+            is PdfNotReadyException ->
+                "Leyendo tu PDF para preparar las preguntas. Inténtalo en un momento; verás \"PDF listo para simulacros\" en el curso."
             else -> aiErrorMessage(error, default = "No pudimos generar preguntas. Inténtalo de nuevo.")
         }
     }

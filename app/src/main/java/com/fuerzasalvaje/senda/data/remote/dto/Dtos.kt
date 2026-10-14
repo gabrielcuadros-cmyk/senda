@@ -112,3 +112,16 @@ data class StressCheckInDto(
     var level: Int = 1,
     var createdAt: Long = 0,
 )
+
+/** PDF study summary. The extracted text and the PDF stay on the device; only the summary is synced. */
+@IgnoreExtraProperties
+data class PdfDigestDto(
+    var courseId: String = "",
+    var pdfKey: String = "",
+    var status: String = "READING",
+    var pageCount: Int = 0,
+    var extractedChars: Int = 0,
+    var scanned: Boolean = false,
+    var summary: String = "",
+    var updatedAt: Long = 0,
+)

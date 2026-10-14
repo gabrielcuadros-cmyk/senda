@@ -150,6 +150,15 @@ class FakeGeminiService(var tipsResult: Result<String> = Result.success("- Estud
     var lastRequest: QuestionRequest? = null
     override val retrying = kotlinx.coroutines.flow.MutableStateFlow(false)
 
+    var digestResult: Result<com.fuerzasalvaje.senda.domain.model.PdfDigestResult> =
+        Result.success(com.fuerzasalvaje.senda.domain.model.PdfDigestResult("## Fórmulas\n- V = I x R (diap. 3)", "gemini-test"))
+    val digestRequests = mutableListOf<com.fuerzasalvaje.senda.domain.model.PdfDigestRequest>()
+
+    override suspend fun digestPdf(request: com.fuerzasalvaje.senda.domain.model.PdfDigestRequest): Result<com.fuerzasalvaje.senda.domain.model.PdfDigestResult> {
+        digestRequests += request
+        return digestResult
+    }
+
     override suspend fun generateQuestions(request: QuestionRequest): Result<List<GeneratedQuestion>> {
         generateCalls++
         lastSyllabus = request.syllabus

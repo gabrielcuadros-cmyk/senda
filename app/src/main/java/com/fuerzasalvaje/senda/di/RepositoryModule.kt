@@ -1,7 +1,9 @@
 package com.fuerzasalvaje.senda.di
 
 import com.fuerzasalvaje.senda.data.local.LocalDocumentStorage
+import com.fuerzasalvaje.senda.data.local.PdfBoxTextExtractor
 import com.fuerzasalvaje.senda.data.focus.PomodoroController
+import com.fuerzasalvaje.senda.data.notifications.WorkManagerPdfDigestScheduler
 import com.fuerzasalvaje.senda.data.notifications.WorkManagerQuestionPrefetcher
 import com.fuerzasalvaje.senda.data.remote.FirebaseSessionProvider
 import com.fuerzasalvaje.senda.data.remote.SessionProvider
@@ -14,6 +16,7 @@ import com.fuerzasalvaje.senda.data.repository.FirestoreSettingsRepository
 import com.fuerzasalvaje.senda.data.repository.PomodoroSessionRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.QuestionRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.SimulacrumRepositoryImpl
+import com.fuerzasalvaje.senda.data.repository.PdfDigestRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.StressCheckInRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.StudyBlockRepositoryImpl
 import com.fuerzasalvaje.senda.data.repository.SyncableRepository
@@ -26,6 +29,9 @@ import com.fuerzasalvaje.senda.domain.repository.DocumentStorage
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
 import com.fuerzasalvaje.senda.domain.repository.PomodoroTimer
 import com.fuerzasalvaje.senda.domain.repository.PomodoroSessionRepository
+import com.fuerzasalvaje.senda.domain.repository.PdfDigestRepository
+import com.fuerzasalvaje.senda.domain.repository.PdfDigestScheduler
+import com.fuerzasalvaje.senda.domain.repository.PdfTextExtractor
 import com.fuerzasalvaje.senda.domain.repository.QuestionPrefetcher
 import com.fuerzasalvaje.senda.domain.repository.QuestionRepository
 import com.fuerzasalvaje.senda.domain.repository.SettingsRepository
@@ -63,6 +69,8 @@ abstract class RepositoryModule {
     @Binds abstract fun bindPomodoroTimer(impl: PomodoroController): PomodoroTimer
     @Binds abstract fun bindTicker(impl: MinuteTicker): Ticker
     @Binds abstract fun bindQuestionPrefetcher(impl: WorkManagerQuestionPrefetcher): QuestionPrefetcher
+    @Binds abstract fun bindPdfDigestScheduler(impl: WorkManagerPdfDigestScheduler): PdfDigestScheduler
+    @Binds abstract fun bindPdfTextExtractor(impl: PdfBoxTextExtractor): PdfTextExtractor
 
     @Binds abstract fun bindCourseRepository(impl: CourseRepositoryImpl): CourseRepository
     @Binds abstract fun bindEvaluationRepository(impl: EvaluationRepositoryImpl): EvaluationRepository
@@ -72,6 +80,7 @@ abstract class RepositoryModule {
     @Binds abstract fun bindPomodoroSessionRepository(impl: PomodoroSessionRepositoryImpl): PomodoroSessionRepository
     @Binds abstract fun bindStudyBlockRepository(impl: StudyBlockRepositoryImpl): StudyBlockRepository
     @Binds abstract fun bindStressCheckInRepository(impl: StressCheckInRepositoryImpl): StressCheckInRepository
+    @Binds abstract fun bindPdfDigestRepository(impl: PdfDigestRepositoryImpl): PdfDigestRepository
 
     // Every collection the SyncManager mirrors into Room.
     @Binds @IntoSet abstract fun syncCourses(impl: CourseRepositoryImpl): SyncableRepository
@@ -82,6 +91,7 @@ abstract class RepositoryModule {
     @Binds @IntoSet abstract fun syncPomodoroSessions(impl: PomodoroSessionRepositoryImpl): SyncableRepository
     @Binds @IntoSet abstract fun syncStudyBlocks(impl: StudyBlockRepositoryImpl): SyncableRepository
     @Binds @IntoSet abstract fun syncStressCheckIns(impl: StressCheckInRepositoryImpl): SyncableRepository
+    @Binds @IntoSet abstract fun syncPdfDigests(impl: PdfDigestRepositoryImpl): SyncableRepository
 
     companion object {
         @Provides

@@ -78,14 +78,40 @@ class GeminiPromptsTest {
     }
 
     @Test
-    fun `question prompt asks for the schema and grounds questions on the PDF`() {
-        val withPdf = prompts.generateQuestions("Física", "Cinemática", 10, listOf(PdfAttachment(byteArrayOf(1), "temario.pdf")))
-        assertTrue(withPdf.expectsJson && withPdf.questionSchema)
-        assertTrue(withPdf.user.contains("Basa todas las preguntas en el contenido de ese material"))
-        assertTrue(withPdf.system.contains("Nunca recomiendes amanecidas"))
+    fun `question prompt asks for the schema and grounds questions on the PDF summary, without the PDF`() {
+        val withDigest = prompts.generateQuestions("Física", "Cinemática", 10, studyDigest = "- v = d / t (diap. 4)")
+        assertTrue(withDigest.expectsJson && withDigest.questionSchema)
+        assertTrue(withDigest.user.contains("Resumen de estudio de los PDF del curso"))
+        assertTrue(withDigest.user.contains("- v = d / t (diap. 4)"))
+        assertTrue(withDigest.user.contains("prioriza sus datos numéricos, fórmulas y casos concretos"))
+        assertTrue(withDigest.user.contains("Fuente: diap. 4"))
+        assertTrue(withDigest.attachments.isEmpty())
+        assertNull(withDigest.timeoutMillis)
+        assertTrue(withDigest.system.contains("Nunca recomiendes amanecidas"))
 
-        assertFalse(prompts.generateQuestions("Física", "Cinemática", 10).user.contains("Material adjunto"))
+        assertFalse(prompts.generateQuestions("Física", "Cinemática", 10).user.contains("Resumen de estudio"))
+        assertTrue(prompts.reviewQuestions("Física", "Cinemática", listOf(generatedQuestion()), "- v = d / t (diap. 4)").user.contains("(diap. 4)"))
     }
+
+    @Test
+    fun `pdf summary prompt asks for sections with page or slide sources and gets 120 s`() {
+        val text = prompts.digestPdf("Física", "Parcial 1", "[Página 1]\nCinemática")
+        assertTrue(text.user.contains("[Página 1]\nCinemática"))
+        listOf("## Conceptos clave", "## Definiciones", "## Fórmulas", "## Datos numéricos", "## Casos y ejemplos").forEach {
+            assertTrue(it, text.user.contains(it))
+        }
+        assertTrue(text.user.contains("(diap. N) o (pág. N)"))
+        assertEquals(120_000L, text.timeoutMillis)
+        assertTrue(text.attachments.isEmpty())
+
+        val scanned = prompts.digestPdf("Física", "Parcial 1", "", listOf(PdfAttachment(byteArrayOf(1), "a.pdf")))
+        assertTrue(scanned.user.contains("El PDF va adjunto"))
+        assertEquals(1, scanned.attachments.size)
+    }
+
+    private fun generatedQuestion() = com.fuerzasalvaje.senda.domain.model.GeneratedQuestion(
+        statement = "¿Velocidad?", options = listOf("1", "2", "3", "4"), correctOptionIndex = 0, explanation = "Porque sí.",
+    )
 
     @Test
     fun `study tips prompt includes this week's pomodoro minutes`() {

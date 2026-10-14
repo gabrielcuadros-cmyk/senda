@@ -26,10 +26,11 @@ class GeminiConfig(
 
 /**
  * [callTimeoutMillis] limits every Gemini call (25 s); a timeout moves on to the next model.
- * A per-minute rate limit (429) waits 2 s, 5 s and 10 s on the same model before moving on.
+ * A per-minute rate limit (429) is retried once on the same model, after 10 s, before moving on: every retry
+ * spends quota.
  */
 data class RetryPolicy(
-    val delaysMillis: List<Long> = listOf(2_000L, 5_000L, 10_000L),
+    val delaysMillis: List<Long> = listOf(10_000L),
     val callTimeoutMillis: Long = CALL_TIMEOUT_MILLIS,
 ) {
     companion object {

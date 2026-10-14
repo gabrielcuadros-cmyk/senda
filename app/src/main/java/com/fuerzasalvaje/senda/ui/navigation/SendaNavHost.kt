@@ -44,6 +44,7 @@ import com.fuerzasalvaje.senda.ui.courses.CourseFormScreen
 import com.fuerzasalvaje.senda.ui.courses.CourseListScreen
 import com.fuerzasalvaje.senda.ui.evaluation.EvaluationFormScreen
 import com.fuerzasalvaje.senda.ui.home.HomeScreen
+import com.fuerzasalvaje.senda.ui.plan.StudyPlanScreen
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -122,12 +123,14 @@ private fun MainNavHost(onSignOut: () -> Unit) {
                     onCreateCourse = { navController.navigate(CourseFormRoute()) },
                     onCreateEvaluation = { navController.navigate(EvaluationFormRoute()) },
                     onEditEvaluation = { navController.navigate(EvaluationFormRoute(evaluationId = it)) },
+                    onOpenPlan = { navController.navigate(StudyPlanRoute) },
                 )
             }
             composable<CalendarRoute> {
                 CalendarScreen(
                     onEditEvaluation = { navController.navigate(EvaluationFormRoute(evaluationId = it)) },
                     onCreateCourse = { navController.navigate(CourseFormRoute()) },
+                    onOpenPlan = { navController.navigate(StudyPlanRoute) },
                 )
             }
             composable<FocusRoute> { ComingSoon("Pomodoro, pausas activas y bienestar llegan en una próxima fase.") }
@@ -141,6 +144,7 @@ private fun MainNavHost(onSignOut: () -> Unit) {
                     onOpen = { navController.navigate(CourseFormRoute(courseId = it)) },
                 )
             }
+            composable<StudyPlanRoute> { StudyPlanScreen(onBack = { navController.popBackStack() }) }
             composable<CourseFormRoute> { CourseFormScreen(onDone = { navController.popBackStack() }) }
             composable<EvaluationFormRoute> {
                 EvaluationFormScreen(

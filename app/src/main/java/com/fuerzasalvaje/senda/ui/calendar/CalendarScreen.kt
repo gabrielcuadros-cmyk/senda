@@ -23,6 +23,12 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.EditCalendar
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material3.AlertDialog
+import com.fuerzasalvaje.senda.domain.model.StudyBlockEntry
+import com.fuerzasalvaje.senda.domain.model.StudyBlockStatus
+import java.time.Instant
 import androidx.compose.material.icons.rounded.EventBusy
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.WarningAmber
@@ -80,6 +86,7 @@ private const val FIRST_VISIBLE_HOUR = 7
 fun CalendarScreen(
     onEditEvaluation: (String) -> Unit,
     onCreateCourse: () -> Unit,
+    onOpenPlan: () -> Unit,
     viewModel: CalendarViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -103,6 +110,7 @@ fun CalendarScreen(
             onPrevious = viewModel::previousWeek,
             onNext = viewModel::nextWeek,
             onToday = viewModel::goToToday,
+            onOpenPlan = onOpenPlan,
         )
         FilterChipsRow(
             options = EvaluationType.entries.map { ChipOption(it, it.pluralLabel) },
@@ -127,7 +135,23 @@ fun CalendarScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        WeekGrid(state = state, zone = zone, onOpen = viewModel::open, modifier = Modifier.weight(1f))
+        WeekGrid(
+            state = state,
+            zone = zone,
+            onOpen = viewModel::open,
+            onOpenStudy = viewModel::openStudy,
+            modifier = Modifier.weight(1f),
+        )
+    }
+
+    state.selectedStudy?.let { entry ->
+        StudyBlockDialog(
+            entry = entry,
+            zone = zone,
+            onDone = viewModel::markStudyDone,
+            onRemove = viewModel::removeStudy,
+            onDismiss = viewModel::closeStudy,
+        )
     }
 
     state.selected?.let { entry ->
@@ -146,7 +170,13 @@ fun CalendarScreen(
 }
 
 @Composable
-private fun WeekHeader(weekStart: LocalDate, onPrevious: () -> Unit, onNext: () -> Unit, onToday: () -> Unit) {
+private fun WeekHeader(
+    weekStart: LocalDate,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onToday: () -> Unit,
+    onOpenPlan: () -> Unit,
+) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onPrevious) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Semana anterior") }
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -155,6 +185,7 @@ private fun WeekHeader(weekStart: LocalDate, onPrevious: () -> Unit, onNext: () 
         }
         IconButton(onClick = onNext) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Semana siguiente") }
         TextButton(onClick = onToday) { Text("Hoy") }
+        IconButton(onClick = onOpenPlan) { Icon(Icons.Rounded.EditCalendar, "Plan de estudio") }
     }
 }
 
@@ -178,7 +209,13 @@ private fun CourseFilterChip(courses: List<ChipOption<String>>, selected: String
 }
 
 @Composable
-private fun WeekGrid(state: CalendarUiState, zone: ZoneId, onOpen: (CalendarEntry) -> Unit, modifier: Modifier) {
+private fun WeekGrid(
+    state: CalendarUiState,
+    zone: ZoneId,
+    onOpen: (CalendarEntry) -> Unit,
+    onOpenStudy: (StudyBlockEntry) -> Unit,
+    modifier: Modifier,
+) {
     val vertical = rememberScrollState()
     val horizontal = rememberScrollState()
     val hourPx = with(LocalDensity.current) { HourHeight.roundToPx() }
@@ -204,12 +241,14 @@ private fun WeekGrid(state: CalendarUiState, zone: ZoneId, onOpen: (CalendarEntr
                 Row(Modifier.horizontalScroll(horizontal)) {
                     state.days.forEach { day ->
                         DayColumn(
-                            entries = state.entriesOn(day, zone),
+                            items = state.entriesOn(day, zone).map { GridItem.Evaluation(it) } +
+                                state.studyBlocksOn(day, zone).map { GridItem.Study(it) },
                             isToday = day == state.today,
                             clashingIds = state.clashingIds,
                             zone = zone,
                             lineColor = lineColor,
                             onOpen = onOpen,
+                            onOpenStudy = onOpenStudy,
                         )
                     }
                 }
@@ -241,17 +280,37 @@ private fun DayHeader(day: LocalDate, state: CalendarUiState, modifier: Modifier
     }
 }
 
+/** Anything drawn on the grid: an evaluation block or an accepted study block. */
+private sealed interface GridItem {
+    val key: String
+    val start: Instant
+    val end: Instant
+
+    data class Evaluation(val entry: CalendarEntry) : GridItem {
+        override val key get() = entry.id
+        override val start: Instant get() = entry.start
+        override val end: Instant get() = entry.end
+    }
+
+    data class Study(val entry: StudyBlockEntry) : GridItem {
+        override val key get() = "study:${entry.block.id}"
+        override val start: Instant get() = entry.block.startAt
+        override val end: Instant get() = entry.block.endAt
+    }
+}
+
 @Composable
 private fun DayColumn(
-    entries: List<CalendarEntry>,
+    items: List<GridItem>,
     isToday: Boolean,
     clashingIds: Set<String>,
     zone: ZoneId,
     lineColor: androidx.compose.ui.graphics.Color,
     onOpen: (CalendarEntry) -> Unit,
+    onOpenStudy: (StudyBlockEntry) -> Unit,
 ) {
     val todayTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f)
-    val layout = remember(entries) { lanes(entries) }
+    val layout = remember(items) { lanes(items) }
     Box(
         Modifier
             .width(DayWidth)
@@ -263,27 +322,30 @@ private fun DayColumn(
                 drawLine(lineColor, Offset(size.width, 0f), Offset(size.width, size.height), strokeWidth = 1f)
             },
     ) {
-        layout.forEach { (entry, lane, laneCount) ->
-            val start = entry.start.atZone(zone).toLocalTime()
-            val minutes = Duration.between(entry.start, entry.end).toMinutes().coerceAtLeast(0)
+        layout.forEach { (item, lane, laneCount) ->
+            val start = item.start.atZone(zone).toLocalTime()
+            val minutes = Duration.between(item.start, item.end).toMinutes().coerceAtLeast(0)
             val top: Dp = HourHeight * ((start.hour * 60 + start.minute) / 60f)
             val height: Dp = maxOf(HourHeight * (minutes / 60f), MinBlockHeight)
             val laneWidth = DayWidth / laneCount
-            EventBlock(
-                entry = entry,
-                clashing = entry.id in clashingIds,
-                zone = zone,
-                onClick = { onOpen(entry) },
-                modifier = Modifier
-                    .offset(x = laneWidth * lane, y = top)
-                    .width(laneWidth - 3.dp)
-                    .height(height)
-                    .padding(start = 2.dp),
-            )
+            val modifier = Modifier
+                .offset(x = laneWidth * lane, y = top)
+                .width(laneWidth - 3.dp)
+                .height(height)
+                .padding(start = 2.dp)
+            when (item) {
+                is GridItem.Evaluation -> EventBlock(
+                    entry = item.entry,
+                    clashing = item.entry.id in clashingIds,
+                    zone = zone,
+                    onClick = { onOpen(item.entry) },
+                    modifier = modifier,
+                )
+                is GridItem.Study -> StudyBlockView(item.entry, zone, onClick = { onOpenStudy(item.entry) }, modifier = modifier)
+            }
         }
     }
 }
-
 @Composable
 private fun EventBlock(entry: CalendarEntry, clashing: Boolean, zone: ZoneId, onClick: () -> Unit, modifier: Modifier) {
     val colors = SendaTheme.colors
@@ -315,11 +377,77 @@ private fun EventBlock(entry: CalendarEntry, clashing: Boolean, zone: ZoneId, on
     }
 }
 
+/** HU-14: accepted study block, peach colored. */
+@Composable
+private fun StudyBlockView(entry: StudyBlockEntry, zone: ZoneId, onClick: () -> Unit, modifier: Modifier) {
+    val done = entry.block.status == StudyBlockStatus.DONE
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = SendaTheme.colors.study,
+        modifier = modifier.alpha(if (done) 0.55f else 1f),
+    ) {
+        BoxWithConstraints(Modifier.padding(horizontal = 6.dp, vertical = 3.dp)) {
+            val roomy = maxHeight >= 44.dp
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (done) Icons.Rounded.CheckCircle else Icons.AutoMirrored.Rounded.MenuBook,
+                        contentDescription = if (done) "Hecho" else null,
+                        modifier = Modifier.size(12.dp),
+                    )
+                    Text(
+                        entry.evaluation?.title ?: "Estudio",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 2.dp),
+                    )
+                }
+                if (roomy) {
+                    Text(
+                        "${Formats.time(entry.block.startAt, zone)}–${Formats.time(entry.block.endAt, zone)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StudyBlockDialog(
+    entry: StudyBlockEntry,
+    zone: ZoneId,
+    onDone: () -> Unit,
+    onRemove: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.AutoMirrored.Rounded.MenuBook, contentDescription = null) },
+        title = { Text(entry.title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(Formats.dateTime(entry.block.startAt, zone) + " – " + Formats.time(entry.block.endAt, zone))
+                entry.course?.let { Text(it.name, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                Text("50 minutos de estudio y luego 10 de pausa.", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            if (entry.block.status != StudyBlockStatus.DONE) TextButton(onClick = onDone) { Text("Marcar como hecho") }
+            else TextButton(onClick = onDismiss) { Text("Cerrar") }
+        },
+        dismissButton = { TextButton(onClick = onRemove) { Text("Quitar del calendario") } },
+    )
+}
+
 /** Splits overlapping blocks of one day into side-by-side lanes. */
-private fun lanes(entries: List<CalendarEntry>): List<Triple<CalendarEntry, Int, Int>> {
-    val visualEnd = { e: CalendarEntry -> maxOf(e.end, e.start.plus(Duration.ofMinutes(35))) }
-    val result = mutableListOf<Triple<CalendarEntry, Int, Int>>()
-    var cluster = mutableListOf<Pair<CalendarEntry, Int>>()
+private fun lanes(entries: List<GridItem>): List<Triple<GridItem, Int, Int>> {
+    val visualEnd = { e: GridItem -> maxOf(e.end, e.start.plus(Duration.ofMinutes(35))) }
+    val result = mutableListOf<Triple<GridItem, Int, Int>>()
+    var cluster = mutableListOf<Pair<GridItem, Int>>()
     var clusterEnd = java.time.Instant.MIN
     val laneEnds = mutableListOf<java.time.Instant>()
 

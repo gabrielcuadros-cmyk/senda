@@ -2,7 +2,9 @@ package com.fuerzasalvaje.senda.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fuerzasalvaje.senda.domain.engine.CourseLoad
 import com.fuerzasalvaje.senda.domain.engine.PriorityItem
+import com.fuerzasalvaje.senda.domain.model.AIRecommendation
 import com.fuerzasalvaje.senda.domain.model.Conflict
 import com.fuerzasalvaje.senda.domain.model.Course
 import com.fuerzasalvaje.senda.domain.model.Evaluation
@@ -15,18 +17,26 @@ import com.fuerzasalvaje.senda.domain.usecase.calendar.ObservePrioritiesUseCase
 import com.fuerzasalvaje.senda.domain.usecase.calendar.ObserveWeekUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ChangeEvaluationStatusUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ObserveEvaluationsUseCase
+import com.fuerzasalvaje.senda.domain.usecase.plan.ObserveCourseLoadUseCase
+import com.fuerzasalvaje.senda.domain.usecase.wellbeing.GenerateStudyTipsUseCase
+import com.fuerzasalvaje.senda.domain.usecase.wellbeing.ObserveLatestTipUseCase
+import com.fuerzasalvaje.senda.domain.usecase.wellbeing.ObserveTodayStressUseCase
+import com.fuerzasalvaje.senda.domain.usecase.wellbeing.SaveStressCheckInUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Clock
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import javax.inject.Inject
+
+data class TipUiState(val loading: Boolean = false, val error: String? = null)
 
 data class HomeUiState(
     val loading: Boolean = true,
@@ -39,44 +49,106 @@ data class HomeUiState(
     val courses: List<Course> = emptyList(),
     val hasEvaluations: Boolean = false,
     val selected: Evaluation? = null,
+    val stressLevel: Int? = null,
+    val criticalCourse: CourseLoad? = null,
+    val tip: AIRecommendation? = null,
+    val tipState: TipUiState = TipUiState(),
 ) {
     fun courseOf(evaluation: Evaluation): Course? = courses.firstOrNull { it.id == evaluation.courseId }
+
+    /** The tutor needs today's stress check-in (D-12). */
+    val canGenerateTip: Boolean get() = stressLevel != null && !tipState.loading
 }
 
-/** Basic dashboard: greeting, weekly progress, this week's conflicts and the urgency list. */
+private data class HomeData(
+    val firstName: String,
+    val progress: WeeklyProgress,
+    val conflicts: List<Conflict>,
+    val courses: List<Course>,
+    val priorities: List<PriorityItem>,
+    val evaluations: List<Evaluation>,
+    val selectedId: String?,
+)
+
+/** HU-10 to HU-13 dashboard plus the D-12 check-in and the AI tutor tip. */
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     observeSession: ObserveSessionUseCase,
     observeWeek: ObserveWeekUseCase,
     observePriorities: ObservePrioritiesUseCase,
     observeEvaluations: ObserveEvaluationsUseCase,
+    observeTodayStress: ObserveTodayStressUseCase,
+    observeCourseLoad: ObserveCourseLoadUseCase,
+    observeLatestTip: ObserveLatestTipUseCase,
+    private val saveStress: SaveStressCheckInUseCase,
+    private val generateTips: GenerateStudyTipsUseCase,
     private val changeStatus: ChangeEvaluationStatusUseCase,
     private val clock: Clock,
 ) : ViewModel() {
 
     val zone: ZoneId get() = clock.zone
     private val selectedId = MutableStateFlow<String?>(null)
+    private val tipState = MutableStateFlow(TipUiState())
 
-    val state: StateFlow<HomeUiState> = combine(
+    private val data = combine(
         observeSession(),
         observeWeek(observeWeek.currentWeekStart()),
         observePriorities(),
         observeEvaluations(),
         selectedId,
     ) { user, week, priorities, evaluations, selected ->
-        HomeUiState(
-            loading = false,
+        HomeData(
             firstName = user?.name?.substringBefore(' ').orEmpty(),
-            today = LocalDate.now(clock),
-            greeting = greetingFor(LocalTime.now(clock)),
             progress = week.progress,
             conflicts = week.conflicts,
-            priorities = priorities,
             courses = week.courses,
-            hasEvaluations = evaluations.isNotEmpty(),
-            selected = evaluations.firstOrNull { it.id == selected },
+            priorities = priorities,
+            evaluations = evaluations,
+            selectedId = selected,
+        )
+    }
+
+    val state: StateFlow<HomeUiState> = combine(
+        data,
+        observeTodayStress(),
+        observeCourseLoad(),
+        observeLatestTip(),
+        tipState,
+    ) { d, stress, load, tip, tipUi ->
+        HomeUiState(
+            loading = false,
+            firstName = d.firstName,
+            today = LocalDate.now(clock),
+            greeting = greetingFor(LocalTime.now(clock)),
+            progress = d.progress,
+            conflicts = d.conflicts,
+            priorities = d.priorities,
+            courses = d.courses,
+            hasEvaluations = d.evaluations.isNotEmpty(),
+            selected = d.evaluations.firstOrNull { it.id == d.selectedId },
+            stressLevel = stress?.level,
+            criticalCourse = load.critical.firstOrNull(),
+            tip = tip,
+            tipState = tipUi,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
+
+    fun checkIn(level: Int) {
+        viewModelScope.launch { saveStress(level) }
+    }
+
+    /** Calls the AI tutor with today's stress and the ranked priorities; also used to retry. */
+    fun generateTip() {
+        val stress = state.value.stressLevel ?: return
+        if (tipState.value.loading) return
+        tipState.value = TipUiState(loading = true)
+        viewModelScope.launch {
+            generateTips(stress).fold(
+                onSuccess = { tipState.value = TipUiState() },
+                onFailure = { tipState.update { TipUiState(error = TIP_ERROR) } },
+            )
+        }
+    }
 
     fun open(evaluation: Evaluation) { selectedId.value = evaluation.id }
     fun close() { selectedId.value = null }
@@ -93,5 +165,9 @@ class HomeViewModel @Inject constructor(
         in 5..11 -> "Buenos días"
         in 12..18 -> "Buenas tardes"
         else -> "Buenas noches"
+    }
+
+    companion object {
+        const val TIP_ERROR = "No pudimos generar el consejo. Revisa tu conexión e inténtalo de nuevo."
     }
 }

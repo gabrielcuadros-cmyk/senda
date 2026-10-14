@@ -20,6 +20,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object SimulacraRoute
 @Serializable data object ProgressRoute
 
+@Serializable data object StudyPlanRoute
 @Serializable data object CourseListRoute
 @Serializable data class CourseFormRoute(val courseId: String? = null)
 

@@ -70,6 +70,7 @@ data class SendaColors(
     val exam: Color,
     val lab: Color,
     val project: Color,
+    val study: Color,
     val easy: Color = DifficultyEasy,
     val medium: Color = DifficultyMedium,
     val hard: Color = DifficultyHard,
@@ -89,8 +90,8 @@ data class SendaColors(
     }
 }
 
-private val LightSendaColors = SendaColors(exam = ExamLight, lab = LabLight, project = ProjectLight)
-private val DarkSendaColors = SendaColors(exam = ExamDark, lab = LabDark, project = ProjectDark)
+private val LightSendaColors = SendaColors(exam = ExamLight, lab = LabLight, project = ProjectLight, study = StudyLight)
+private val DarkSendaColors = SendaColors(exam = ExamDark, lab = LabDark, project = ProjectDark, study = StudyDark)
 
 private val LocalSendaColors = staticCompositionLocalOf { LightSendaColors }
 

@@ -7,6 +7,7 @@ import com.fuerzasalvaje.senda.domain.model.Exam
 import com.fuerzasalvaje.senda.domain.model.Lab
 import com.fuerzasalvaje.senda.domain.model.PhaseStatus
 import com.fuerzasalvaje.senda.domain.model.Project
+import com.fuerzasalvaje.senda.domain.model.localPdfPath
 import com.fuerzasalvaje.senda.domain.repository.DocumentStorage
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
 import kotlinx.coroutines.flow.Flow
@@ -14,22 +15,6 @@ import kotlinx.coroutines.flow.first
 import java.time.Duration
 import java.time.Instant
 import javax.inject.Inject
-
-/** Local PDF of an exam (syllabus) or lab (guide). */
-val Evaluation.localPdfPath: String?
-    get() = when (this) {
-        is Exam -> syllabusPdfPath
-        is Lab -> guidePdfPath
-        is Project -> null
-    }
-
-/** Main date of an evaluation: exam start, lab deadline or next pending project phase. */
-val Evaluation.mainDate: Instant?
-    get() = when (this) {
-        is Exam -> startAt
-        is Lab -> dueAt
-        is Project -> nextPendingPhase?.dueAt
-    }
 
 class ObserveEvaluationUseCase @Inject constructor(private val repository: EvaluationRepository) {
     operator fun invoke(id: String): Flow<Evaluation?> = repository.observeById(id)

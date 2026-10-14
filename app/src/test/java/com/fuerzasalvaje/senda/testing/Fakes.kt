@@ -1,6 +1,19 @@
 package com.fuerzasalvaje.senda.testing
 
+import com.fuerzasalvaje.senda.domain.model.AIRecommendation
+import com.fuerzasalvaje.senda.domain.model.Availability
 import com.fuerzasalvaje.senda.domain.model.Course
+import com.fuerzasalvaje.senda.domain.model.GeneratedQuestion
+import com.fuerzasalvaje.senda.domain.model.StressCheckIn
+import com.fuerzasalvaje.senda.domain.model.StudyBlock
+import com.fuerzasalvaje.senda.domain.model.StudyTipsRequest
+import com.fuerzasalvaje.senda.domain.model.User
+import com.fuerzasalvaje.senda.domain.repository.AIRecommendationRepository
+import com.fuerzasalvaje.senda.domain.repository.AuthRepository
+import com.fuerzasalvaje.senda.domain.repository.AvailabilityRepository
+import com.fuerzasalvaje.senda.domain.repository.GeminiService
+import com.fuerzasalvaje.senda.domain.repository.StressCheckInRepository
+import com.fuerzasalvaje.senda.domain.repository.StudyBlockRepository
 import com.fuerzasalvaje.senda.domain.model.Evaluation
 import com.fuerzasalvaje.senda.domain.model.Exam
 import com.fuerzasalvaje.senda.domain.model.ExamType
@@ -61,6 +74,44 @@ class FakeCourseRepository : FakeOwnedRepository<Course>({ it.id }), CourseRepos
 class FakeEvaluationRepository : FakeOwnedRepository<Evaluation>({ it.id }), EvaluationRepository {
     override fun observeByCourse(courseId: String): Flow<List<Evaluation>> =
         items.map { all -> all.values.filter { it.courseId == courseId } }
+}
+
+class FakeStudyBlockRepository : FakeOwnedRepository<StudyBlock>({ it.id }), StudyBlockRepository
+
+class FakeStressRepository : FakeOwnedRepository<StressCheckIn>({ it.id }), StressCheckInRepository
+
+class FakeRecommendationRepository : FakeOwnedRepository<AIRecommendation>({ it.id }), AIRecommendationRepository
+
+class FakeAvailabilityRepository(initial: Availability = Availability()) : AvailabilityRepository {
+    val current = MutableStateFlow(initial)
+    override fun observe(): Flow<Availability> = current
+    override suspend fun save(availability: Availability): Result<Unit> {
+        current.value = availability
+        return Result.success(Unit)
+    }
+}
+
+class FakeAuthRepository(user: User? = User("u1", "Ana Torres", "ana@tecsup.edu.pe")) : AuthRepository {
+    val session = MutableStateFlow(user)
+    override suspend fun signUp(name: String, email: String, password: String) = Result.success(session.value!!)
+    override suspend fun signIn(email: String, password: String) = Result.success(session.value!!)
+    override suspend fun signOut() { session.value = null }
+    override suspend fun sendPasswordReset(email: String) = Result.success(Unit)
+    override fun observeSession(): Flow<User?> = session
+}
+
+/** Returns [tipsResult]; records the last request so tests can check what was sent. */
+class FakeGeminiService(var tipsResult: Result<String> = Result.success("- Estudia **Física** primero")) : GeminiService {
+    var lastTipsRequest: StudyTipsRequest? = null
+    override suspend fun explainMistake(
+        courseName: String, question: String, options: List<String>, correctAnswer: String, studentAnswer: String?,
+    ) = Result.success("Explicación")
+    override suspend fun studyTips(request: StudyTipsRequest): Result<String> {
+        lastTipsRequest = request
+        return tipsResult
+    }
+    override suspend fun generateQuestions(courseName: String, syllabus: String, count: Int) =
+        Result.success(emptyList<GeneratedQuestion>())
 }
 
 class FakeDocumentStorage : DocumentStorage {

@@ -22,8 +22,8 @@ import com.fuerzasalvaje.senda.domain.usecase.evaluation.DeleteEvaluationUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.ObserveEvaluationUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.RescheduleEvaluationUseCase
 import com.fuerzasalvaje.senda.domain.usecase.evaluation.SaveEvaluationUseCase
-import com.fuerzasalvaje.senda.domain.usecase.evaluation.localPdfPath
-import com.fuerzasalvaje.senda.domain.usecase.evaluation.mainDate
+import com.fuerzasalvaje.senda.domain.model.localPdfPath
+import com.fuerzasalvaje.senda.domain.model.mainDate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

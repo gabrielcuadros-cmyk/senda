@@ -1,5 +1,7 @@
 package com.fuerzasalvaje.senda.data.local
 
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
@@ -32,7 +34,7 @@ import com.fuerzasalvaje.senda.data.local.entity.StudyBlockEntity
         StudyBlockEntity::class,
         StressCheckInEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -48,5 +50,12 @@ abstract class SendaDatabase : RoomDatabase() {
 
     companion object {
         const val NAME = "senda.db"
+
+        /** v2: questions remember why the student reported them. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE questions ADD COLUMN reportReason TEXT")
+            }
+        }
     }
 }

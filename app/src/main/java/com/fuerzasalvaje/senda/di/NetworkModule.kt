@@ -26,9 +26,9 @@ object NetworkModule {
     @Singleton
     fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        // Whole request, including large PDF uploads, must finish within 60 s.
-        .callTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .writeTimeout(25, TimeUnit.SECONDS)
+        // Whole request, PDF upload included, within 25 s; then the next model of the chain is tried.
+        .callTimeout(25, TimeUnit.SECONDS)
         .build()
 }

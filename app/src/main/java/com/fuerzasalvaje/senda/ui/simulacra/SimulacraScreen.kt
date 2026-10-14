@@ -1,5 +1,6 @@
 package com.fuerzasalvaje.senda.ui.simulacra
 
+import com.fuerzasalvaje.senda.domain.repository.PrefetchStatus
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -138,6 +139,27 @@ private fun SettingsCard(state: SimulacraUiState, viewModel: SimulacraViewModel)
     }
 }
 
+/** Background question generation of the course (WorkManager) or how many questions are ready. */
+@Composable
+private fun PrefetchLine(item: CourseSimulacraItem) {
+    val (text, color) = when (item.prefetch) {
+        PrefetchStatus.PREPARING -> "Preparando preguntas con IA…" to MaterialTheme.colorScheme.primary
+        PrefetchStatus.RETRYING -> "No se pudo preparar, reintentando" to SendaTheme.colors.busyDay
+        PrefetchStatus.FAILED ->
+            "No se pudo preparar. Revisa el temario o el PDF del curso." to SendaTheme.colors.hard
+        PrefetchStatus.IDLE ->
+            (if (item.available > 0) "${item.available} ${if (item.available == 1) "pregunta lista" else "preguntas listas"}"
+            else "Aún sin preguntas: se generan desde tu temario y PDF") to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+        if (item.prefetch == PrefetchStatus.PREPARING) {
+            CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(text, style = MaterialTheme.typography.bodySmall, color = color)
+    }
+}
+
 @Composable
 private fun CourseCard(item: CourseSimulacraItem, preparing: Boolean, busy: Boolean, onStart: () -> Unit) {
     SendaCard(Modifier.fillMaxWidth()) {
@@ -157,8 +179,9 @@ private fun CourseCard(item: CourseSimulacraItem, preparing: Boolean, busy: Bool
                 else -> SendaTheme.colors.hard
             },
         )
+        PrefetchLine(item)
         Text(
-            "${item.questionCount} preguntas en tu banco · ${item.attempts} simulacros",
+            "${item.attempts} ${if (item.attempts == 1) "simulacro hecho" else "simulacros hechos"}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

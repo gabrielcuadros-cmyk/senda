@@ -19,6 +19,8 @@ data class Question(
     val explanation: String = "",
     val source: QuestionSource = QuestionSource.AI,
     val createdAt: Instant,
+    /** Set when the student reports it; reported questions leave the bank but stay in past results. */
+    val reportReason: QuestionReport? = null,
 ) {
     init {
         require(options.size >= 2) { "A question needs at least two options" }
@@ -26,7 +28,11 @@ data class Question(
     }
 
     val isCase: Boolean get() = scenario != null
+    val isReported: Boolean get() = reportReason != null
 }
+
+/** Why a student reports a question from the results screen. */
+enum class QuestionReport { WRONG, CONFUSING, OFF_SYLLABUS }
 
 data class SimulacrumAnswer(
     val questionId: String,

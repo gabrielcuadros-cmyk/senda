@@ -1,5 +1,13 @@
 package com.fuerzasalvaje.senda.ui.simulacra
 
+import androidx.compose.runtime.remember
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.runtime.LaunchedEffect
+import com.fuerzasalvaje.senda.domain.model.QuestionReport
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -74,6 +82,10 @@ private fun grade(value: Double) = String.format(Locale.forLanguageTag("es-PE"),
 fun SimulacrumResultScreen(onBack: () -> Unit, viewModel: SimulacrumResultViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val colors = SendaTheme.colors
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(state.message) {
+        state.message?.let { snackbar.showSnackbar(it); viewModel.consumeMessage() }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -82,6 +94,7 @@ fun SimulacrumResultScreen(onBack: () -> Unit, viewModel: SimulacrumResultViewMo
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         if (state.loading) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -117,9 +130,13 @@ fun SimulacrumResultScreen(onBack: () -> Unit, viewModel: SimulacrumResultViewMo
                     }
                 }
             }
-            items(state.items, key = { it.question.id }) { item -> ResultCard(item, onExplain = { viewModel.explain(item) }) }
+            items(state.items, key = { it.question.id }) { item ->
+                ResultCard(item, onExplain = { viewModel.explain(item) }, onReport = { viewModel.openReport(item) })
+            }
         }
     }
+
+    state.reporting?.let { item -> ReportDialog(onReport = { viewModel.report(item, it) }, onDismiss = viewModel::closeReport) }
 
     state.explaining?.let { item ->
         val explanation = state.explanations[item.question.id]
@@ -161,7 +178,7 @@ private fun Summary(icon: androidx.compose.ui.graphics.vector.ImageVector, tint:
 }
 
 @Composable
-private fun ResultCard(item: ResultItem, onExplain: () -> Unit) {
+private fun ResultCard(item: ResultItem, onExplain: () -> Unit, onReport: () -> Unit) {
     val colors = SendaTheme.colors
     val (tint, label) = when (item.outcome) {
         AnswerOutcome.CORRECT -> colors.easy to "Correcta"
@@ -192,8 +209,51 @@ private fun ResultCard(item: ResultItem, onExplain: () -> Unit) {
                 Text("Explícame con IA")
             }
         }
+        if (item.question.isReported) {
+            Text(
+                "Reportada: ya no aparecerá en tus simulacros.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.End).padding(top = 6.dp),
+            )
+        } else {
+            TextButton(onClick = onReport, modifier = Modifier.align(Alignment.End)) {
+                Icon(Icons.Rounded.Flag, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Reportar pregunta")
+            }
+        }
     }
 }
+
+/** HU-17 feedback: why the question is bad. */
+@Composable
+private fun ReportDialog(onReport: (QuestionReport) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Reportar pregunta") },
+        text = {
+            Column {
+                Text("¿Qué tiene de malo? La quitaremos de tu banco y prepararemos otra.", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
+                QuestionReport.entries.forEach { reason ->
+                    TextButton(onClick = { onReport(reason) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(reason.label, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+private val QuestionReport.label: String
+    get() = when (this) {
+        QuestionReport.WRONG -> "La respuesta es incorrecta"
+        QuestionReport.CONFUSING -> "Es confusa o ambigua"
+        QuestionReport.OFF_SYLLABUS -> "No es del temario"
+    }
 
 /** HU-16: Progreso tab. */
 @Composable

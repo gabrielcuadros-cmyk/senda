@@ -8,6 +8,8 @@ import com.google.firebase.ai.type.GenerativeBackend
 import com.google.firebase.ai.type.Schema
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
+import com.google.firebase.ai.type.thinkingConfig
+import com.google.firebase.ai.type.ThinkingLevel as FirebaseThinkingLevel
 import java.io.IOException
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
@@ -25,13 +27,18 @@ class FirebaseGeminiService @Inject constructor(
     override suspend fun send(prompt: GeminiPrompt, model: String): String {
         val model = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
             modelName = model,
-            generationConfig = if (prompt.expectsJson) {
-                generationConfig {
-                    responseMimeType = "application/json"
-                    if (prompt.questionSchema) responseSchema = QUESTION_SCHEMA
+            generationConfig = generationConfig {
+                if (prompt.expectsJson) responseMimeType = "application/json"
+                when (prompt.schema) {
+                    ResponseSchema.QUESTIONS -> responseSchema = QUESTION_SCHEMA
+                    ResponseSchema.REVIEW -> responseSchema = REVIEW_SCHEMA
+                    null -> Unit
                 }
-            } else {
-                null
+                when (val setting = Thinking.forModel(model, prompt.thinking)) {
+                    is ThinkingSetting.Level -> thinkingConfig = thinkingConfig { thinkingLevel = setting.toFirebase() }
+                    is ThinkingSetting.Budget -> thinkingConfig = thinkingConfig { thinkingBudget = setting.tokens }
+                    null -> Unit
+                }
             },
             systemInstruction = content { text(prompt.system) },
         )
@@ -59,7 +66,9 @@ class FirebaseGeminiService @Inject constructor(
             chain.any { it is IOException } -> AiError.Network(this)
             "QuotaExceededException" in names -> AiError.QuotaExceeded(message.orEmpty(), daily = isDailyQuota(message.orEmpty()))
             names.any { it in setOf("InvalidAPIKeyException", "APINotConfiguredException", "ServiceDisabledException") } ->
-                AiError.Configuration(message.orEmpty())
+                AiError.Configuration(message.orEmpty(), invalidKey = true)
+            message.orEmpty().contains("404") || message.orEmpty().contains("not found", ignoreCase = true) ->
+                AiError.Configuration(message.orEmpty(), invalidKey = false)
             names.any { it in setOf("PromptBlockedException", "ResponseStoppedException") } -> AiError.Blocked(message.orEmpty())
             names.any { it in setOf("SerializationException", "InvalidStateException") } -> AiError.InvalidResponse(message.orEmpty(), this)
             names.any { it.contains("Timeout") } -> AiError.Timeout(this)
@@ -72,19 +81,39 @@ class FirebaseGeminiService @Inject constructor(
         }
     }
 
+    private fun ThinkingSetting.Level.toFirebase(): FirebaseThinkingLevel = when (value) {
+        "minimal" -> FirebaseThinkingLevel.MINIMAL
+        "low" -> FirebaseThinkingLevel.LOW
+        "medium" -> FirebaseThinkingLevel.MEDIUM
+        else -> FirebaseThinkingLevel.HIGH
+    }
+
     private companion object {
-        val QUESTION_SCHEMA: Schema = Schema.obj(
+        fun question(nullable: Boolean = false): Schema = Schema.obj(
             mapOf(
-                "questions" to Schema.array(
+                "scenario" to Schema.string(nullable = true),
+                "statement" to Schema.string(),
+                "options" to Schema.array(Schema.string()),
+                "correctOptionIndex" to Schema.integer(),
+                "explanation" to Schema.string(),
+            ),
+            optionalProperties = listOf("scenario"),
+            nullable = nullable,
+        )
+
+        val QUESTION_SCHEMA: Schema = Schema.obj(mapOf("questions" to Schema.array(question())))
+
+        val REVIEW_SCHEMA: Schema = Schema.obj(
+            mapOf(
+                "reviews" to Schema.array(
                     Schema.obj(
                         mapOf(
-                            "scenario" to Schema.string(nullable = true),
-                            "statement" to Schema.string(),
-                            "options" to Schema.array(Schema.string()),
-                            "correctOptionIndex" to Schema.integer(),
-                            "explanation" to Schema.string(),
+                            "index" to Schema.integer(),
+                            "verdict" to Schema.enumeration(listOf("ok", "corregir", "descartar")),
+                            "reason" to Schema.string(),
+                            "question" to question(nullable = true),
                         ),
-                        optionalProperties = listOf("scenario"),
+                        optionalProperties = listOf("reason", "question"),
                     )
                 )
             )

@@ -62,6 +62,7 @@ data class QuestionDto(
     var explanation: String = "",
     var source: String = "AI",
     var createdAt: Long = 0,
+    var reportReason: String? = null,
 )
 
 @IgnoreExtraProperties

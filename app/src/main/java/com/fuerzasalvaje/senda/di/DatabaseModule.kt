@@ -17,7 +17,9 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): SendaDatabase =
-        Room.databaseBuilder(context, SendaDatabase::class.java, SendaDatabase.NAME).build()
+        Room.databaseBuilder(context, SendaDatabase::class.java, SendaDatabase.NAME)
+            .addMigrations(SendaDatabase.MIGRATION_1_2)
+            .build()
 
     @Provides fun provideCourseDao(db: SendaDatabase) = db.courseDao()
     @Provides fun provideEvaluationDao(db: SendaDatabase) = db.evaluationDao()

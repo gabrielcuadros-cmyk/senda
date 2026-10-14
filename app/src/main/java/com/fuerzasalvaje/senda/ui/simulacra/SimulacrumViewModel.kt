@@ -1,5 +1,6 @@
 package com.fuerzasalvaje.senda.ui.simulacra
 
+import com.fuerzasalvaje.senda.domain.usecase.simulacrum.SimulacrumWrites
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -65,24 +66,37 @@ class SimulacrumViewModel @Inject constructor(
         viewModelScope.launch { load() }
     }
 
+    /**
+     * Follows the stored attempt: the first value starts the screen and later ones add the questions generated
+     * in the background (an attempt can start with 3 and grow). Answers in memory always win.
+     */
     private suspend fun load() {
-        val session = observeSimulacrum(simulacrumId).firstOrNull()
-        if (session == null) {
-            _state.update { it.copy(loading = false, error = "No encontramos este simulacro.") }
-            return
+        observeSimulacrum(simulacrumId).collect { session ->
+            val current = _state.value.simulacrum
+            if (session == null) {
+                if (current == null) _state.update { it.copy(loading = false, error = "No encontramos este simulacro.") }
+                return@collect
+            }
+            if (current == null) {
+                val simulacrum = session.simulacrum
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        simulacrum = simulacrum,
+                        questions = session.questions,
+                        selections = simulacrum.answers.mapNotNull { a -> a.selectedOptionIndex?.let { idx -> a.questionId to idx } }.toMap(),
+                        finished = simulacrum.isFinished,
+                        remainingSeconds = SimulacrumTimer.remaining(simulacrum, clock.instant()).seconds,
+                    )
+                }
+                if (!simulacrum.isFinished) startTimer()
+            } else if (!current.isFinished && session.questions.size > _state.value.questions.size) {
+                _state.update {
+                    val mine = it.simulacrum ?: return@update it
+                    it.copy(simulacrum = SimulacrumWrites.merge(mine, session.simulacrum), questions = session.questions)
+                }
+            }
         }
-        val simulacrum = session.simulacrum
-        _state.update {
-            it.copy(
-                loading = false,
-                simulacrum = simulacrum,
-                questions = session.questions,
-                selections = simulacrum.answers.mapNotNull { a -> a.selectedOptionIndex?.let { idx -> a.questionId to idx } }.toMap(),
-                finished = simulacrum.isFinished,
-                remainingSeconds = SimulacrumTimer.remaining(simulacrum, clock.instant()).seconds,
-            )
-        }
-        if (!simulacrum.isFinished) startTimer()
     }
 
     /** Ticks once per second against the deadline; at zero the attempt is submitted automatically. */

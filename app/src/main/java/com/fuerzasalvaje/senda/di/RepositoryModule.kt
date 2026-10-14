@@ -2,6 +2,7 @@ package com.fuerzasalvaje.senda.di
 
 import com.fuerzasalvaje.senda.data.local.LocalDocumentStorage
 import com.fuerzasalvaje.senda.data.focus.PomodoroController
+import com.fuerzasalvaje.senda.data.notifications.WorkManagerQuestionPrefetcher
 import com.fuerzasalvaje.senda.data.remote.FirebaseSessionProvider
 import com.fuerzasalvaje.senda.data.remote.SessionProvider
 import com.fuerzasalvaje.senda.data.repository.AIRecommendationRepositoryImpl
@@ -25,6 +26,7 @@ import com.fuerzasalvaje.senda.domain.repository.DocumentStorage
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
 import com.fuerzasalvaje.senda.domain.repository.PomodoroTimer
 import com.fuerzasalvaje.senda.domain.repository.PomodoroSessionRepository
+import com.fuerzasalvaje.senda.domain.repository.QuestionPrefetcher
 import com.fuerzasalvaje.senda.domain.repository.QuestionRepository
 import com.fuerzasalvaje.senda.domain.repository.SettingsRepository
 import com.fuerzasalvaje.senda.domain.repository.SimulacrumRepository
@@ -60,6 +62,7 @@ abstract class RepositoryModule {
     @Binds abstract fun bindSettingsRepository(impl: FirestoreSettingsRepository): SettingsRepository
     @Binds abstract fun bindPomodoroTimer(impl: PomodoroController): PomodoroTimer
     @Binds abstract fun bindTicker(impl: MinuteTicker): Ticker
+    @Binds abstract fun bindQuestionPrefetcher(impl: WorkManagerQuestionPrefetcher): QuestionPrefetcher
 
     @Binds abstract fun bindCourseRepository(impl: CourseRepositoryImpl): CourseRepository
     @Binds abstract fun bindEvaluationRepository(impl: EvaluationRepositoryImpl): EvaluationRepository

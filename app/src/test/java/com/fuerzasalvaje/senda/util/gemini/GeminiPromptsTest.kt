@@ -99,6 +99,62 @@ class GeminiPromptsTest {
     }
 
     @Test
+    fun `the review answer becomes one verdict per question`() {
+        val raw = """
+            {"reviews": [
+              {"index": 0, "verdict": "ok", "reason": "Correcta"},
+              {"index": 1, "verdict": "corregir", "reason": "La respuesta marcada era otra",
+               "question": {"statement": "¿Qué mide la velocidad?", "options": ["Distancia/tiempo", "Masa", "Fuerza", "Energía"],
+                            "correctOptionIndex": 0, "explanation": "Es la distancia entre el tiempo. Fuente: diap. 4"}},
+              {"index": 2, "verdict": "descartar", "reason": "Fuera del temario"},
+              {"index": 3, "verdict": "corregir"},
+              {"index": 0, "verdict": "corregir"}
+            ]}
+        """.trimIndent()
+
+        val verdicts = prompts.parseReview(raw)
+
+        assertEquals(listOf(0, 1, 2, 3), verdicts.map { it.index })
+        assertTrue(verdicts[0].approved)
+        assertFalse(verdicts[1].approved)
+        assertEquals("¿Qué mide la velocidad?", verdicts[1].corrected?.statement)
+        assertEquals(0, verdicts[1].corrected?.correctOptionIndex)
+        assertFalse(verdicts[2].approved)
+        assertNull(verdicts[2].corrected)
+        assertNull(verdicts[3].corrected) // "corregir" without a question cannot be used
+    }
+
+    @Test
+    fun `a review that is not JSON is an invalid response`() {
+        assertTrue(runCatching { prompts.parseReview("Todo bien") }.exceptionOrNull() is AiError.InvalidResponse)
+    }
+
+    @Test
+    fun `generation thinks low and the review thinks medium, with the quality rules`() {
+        val generation = prompts.generateQuestions("Física", "Cinemática", 5, batchIndex = 1, batchCount = 3, avoidStatements = listOf("¿Qué es la rapidez?"))
+        val review = prompts.reviewQuestions("Física", "Cinemática", listOf(com.fuerzasalvaje.senda.testing.generated(1)))
+
+        assertEquals(ThinkingLevel.LOW, generation.thinking)
+        assertEquals(ThinkingLevel.MEDIUM, review.thinking)
+        assertEquals(ResponseSchema.REVIEW, review.schema)
+        listOf(
+            "3 conceptuales y 2 de aplicación", "1 fácil(es), 3 media(s) y 1 difícil(es)", "Prohibido \"todas las anteriores\"",
+            "Fuente: diap. 4", "tanda 2 de 3", "¿Qué es la rapidez?", "unidades del Sistema Internacional",
+        ).forEach { assertTrue("missing: $it", generation.user.contains(it)) }
+    }
+
+    @Test
+    fun `thinking setting depends on the model family`() {
+        assertEquals(ThinkingSetting.Level("low"), Thinking.forModel("gemini-3.5-flash", ThinkingLevel.LOW))
+        assertEquals(ThinkingSetting.Level("medium"), Thinking.forModel("gemini-3-flash", ThinkingLevel.MEDIUM))
+        assertEquals(ThinkingSetting.Level("high"), Thinking.forModel("gemini-3-pro-preview", ThinkingLevel.MEDIUM))
+        assertEquals(ThinkingSetting.Budget(0), Thinking.forModel("gemini-2.5-flash", ThinkingLevel.LOW))
+        assertEquals(ThinkingSetting.Budget(128), Thinking.forModel("gemini-2.5-pro", ThinkingLevel.LOW))
+        assertNull(Thinking.forModel("gemini-2.0-flash", ThinkingLevel.LOW))
+        assertNull(Thinking.forModel("gemini-3-flash", null))
+    }
+
+    @Test
     fun `config never prints the api key`() {
         val config = GeminiConfig(apiKey = "secret-value", model = "m", provider = "apikey")
         assertFalse(config.toString().contains("secret-value"))

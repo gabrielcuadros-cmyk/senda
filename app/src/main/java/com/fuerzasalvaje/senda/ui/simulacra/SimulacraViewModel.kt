@@ -1,5 +1,8 @@
 package com.fuerzasalvaje.senda.ui.simulacra
 
+import com.fuerzasalvaje.senda.domain.usecase.simulacrum.QuestionBankUseCase
+import com.fuerzasalvaje.senda.domain.repository.QuestionPrefetcher
+import com.fuerzasalvaje.senda.domain.repository.PrefetchStatus
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fuerzasalvaje.senda.domain.engine.SimulacrumTimer
@@ -31,6 +34,9 @@ data class CourseSimulacraItem(
     val readiness: Int?,
     val questionCount: Int,
     val attempts: Int,
+    /** Questions a new attempt can use right now (not reported, not recently answered right). */
+    val available: Int = questionCount,
+    val prefetch: PrefetchStatus = PrefetchStatus.IDLE,
 )
 
 data class SimulacraUiState(
@@ -55,6 +61,8 @@ class SimulacraViewModel @Inject constructor(
     observeReadiness: ObserveReadinessUseCase,
     questions: QuestionRepository,
     simulacra: SimulacrumRepository,
+    bank: QuestionBankUseCase,
+    prefetcher: QuestionPrefetcher,
     private val startSimulacrum: StartSimulacrumUseCase,
     private val finishSimulacrum: FinishSimulacrumUseCase,
     private val clock: Clock,
@@ -62,16 +70,26 @@ class SimulacraViewModel @Inject constructor(
 
     private val ui = MutableStateFlow(SimulacraUiState())
 
+    private val background = combine(bank.observeAvailableCounts(), prefetcher.observeStatus()) { available, status -> available to status }
+
     val state: StateFlow<SimulacraUiState> = combine(
-        observeCourses(), observeReadiness(), questions.observeAll(), simulacra.observeAll(), ui,
-    ) { courses, readiness, questionList, attempts, current ->
+        combine(observeCourses(), observeReadiness()) { courses, readiness -> courses to readiness },
+        questions.observeAll(), simulacra.observeAll(), ui, background,
+    ) { (courses, readiness), questionList, attempts, current, (available, status) ->
         val questionsByCourse = questionList.groupingBy { it.courseId }.eachCount()
         val finishedByCourse = attempts.filter { it.isFinished }.groupingBy { it.courseId }.eachCount()
         val now = clock.instant()
         current.copy(
             loading = false,
             items = courses.map {
-                CourseSimulacraItem(it, readiness[it.id], questionsByCourse[it.id] ?: 0, finishedByCourse[it.id] ?: 0)
+                CourseSimulacraItem(
+                    course = it,
+                    readiness = readiness[it.id],
+                    questionCount = questionsByCourse[it.id] ?: 0,
+                    attempts = finishedByCourse[it.id] ?: 0,
+                    available = available[it.id] ?: 0,
+                    prefetch = status[it.id] ?: PrefetchStatus.IDLE,
+                )
             },
             inProgress = attempts
                 .filter { !it.isFinished && !SimulacrumTimer.isExpired(it, now) }

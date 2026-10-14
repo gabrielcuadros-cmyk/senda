@@ -34,21 +34,14 @@ class GeminiRestService @Inject constructor(
 ) : BaseGeminiService(prompts, logger, config) {
 
     override suspend fun send(prompt: GeminiPrompt, model: String): String {
-        if (!config.hasApiKey) throw AiError.Configuration("GEMINI_API_KEY is not configured in local.properties")
+        if (!config.hasApiKey) throw AiError.Configuration("GEMINI_API_KEY is not configured in local.properties", invalidKey = true)
 
         val parts = prompt.attachments.map { Part(inlineData = InlineData(PDF, Base64.getEncoder().encodeToString(it.bytes))) } +
             Part(text = prompt.user)
         val body = GenerateContentRequest(
             systemInstruction = Content(parts = listOf(Part(text = prompt.system))),
             contents = listOf(Content(role = "user", parts = parts)),
-            generationConfig = if (prompt.expectsJson) {
-                GenerationConfig(
-                    responseMimeType = "application/json",
-                    responseSchema = if (prompt.questionSchema) QUESTION_SCHEMA else null,
-                )
-            } else {
-                null
-            },
+            generationConfig = generationConfig(prompt, model),
         )
         val request = Request.Builder()
             .url("$BASE_URL/$model:generateContent")
@@ -91,13 +84,33 @@ class GeminiRestService @Inject constructor(
         return text
     }
 
+    private fun generationConfig(prompt: GeminiPrompt, model: String): GenerationConfig? {
+        val thinking = when (val setting = Thinking.forModel(model, prompt.thinking)) {
+            is ThinkingSetting.Level -> ThinkingConfig(thinkingLevel = setting.value)
+            is ThinkingSetting.Budget -> ThinkingConfig(thinkingBudget = setting.tokens)
+            null -> null
+        }
+        if (!prompt.expectsJson && thinking == null) return null
+        return GenerationConfig(
+            responseMimeType = if (prompt.expectsJson) "application/json" else null,
+            responseSchema = when (prompt.schema) {
+                ResponseSchema.QUESTIONS -> QUESTION_SCHEMA
+                ResponseSchema.REVIEW -> REVIEW_SCHEMA
+                null -> null
+            },
+            thinkingConfig = thinking,
+        )
+    }
+
     /** [body] is scanned for per-day quota ids such as "GenerateRequestsPerDayPerProjectPerModel-FreeTier". */
     private fun httpError(code: Int, error: ErrorBody?, body: String): AiError {
         val message = error?.message.orEmpty()
         return when {
             code == 429 || error?.status == "RESOURCE_EXHAUSTED" -> AiError.QuotaExceeded(message, daily = isDailyQuota(body))
-            code == 401 || code == 403 || code == 404 || message.contains("API key", ignoreCase = true) ->
-                AiError.Configuration(message)
+            code == 401 || code == 403 || message.contains("API key", ignoreCase = true) ->
+                AiError.Configuration(message, invalidKey = true)
+            // A model that does not exist (or not for this key): the next model of the chain is tried.
+            code == 404 -> AiError.Configuration(message, invalidKey = false)
             else -> AiError.Server(code, message)
         }
     }
@@ -122,7 +135,11 @@ class GeminiRestService @Inject constructor(
     private data class GenerationConfig(
         val responseMimeType: String? = null,
         val responseSchema: JsonObject? = null,
+        val thinkingConfig: ThinkingConfig? = null,
     )
+
+    @Serializable
+    private data class ThinkingConfig(val thinkingLevel: String? = null, val thinkingBudget: Int? = null)
 
     @Serializable
     private data class GenerateContentResponse(
@@ -147,36 +164,65 @@ class GeminiRestService @Inject constructor(
         private const val PDF = "application/pdf"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
-        /** {"questions": [{statement, scenario?, options[4], correctOptionIndex, explanation}]} */
+        /** One question: {statement, scenario?, options[4], correctOptionIndex, explanation}. */
+        private fun questionObject(nullable: Boolean = false): JsonObject = buildJsonObject {
+            put("type", "OBJECT")
+            if (nullable) put("nullable", true)
+            putJsonObject("properties") {
+                putJsonObject("statement") { put("type", "STRING") }
+                putJsonObject("scenario") { put("type", "STRING"); put("nullable", true) }
+                putJsonObject("options") {
+                    put("type", "ARRAY")
+                    putJsonObject("items") { put("type", "STRING") }
+                    put("minItems", 4)
+                    put("maxItems", 4)
+                }
+                putJsonObject("correctOptionIndex") { put("type", "INTEGER") }
+                putJsonObject("explanation") { put("type", "STRING") }
+            }
+            putJsonArray("required") {
+                add("statement"); add("options"); add("correctOptionIndex"); add("explanation")
+            }
+            putJsonArray("propertyOrdering") {
+                add("scenario"); add("statement"); add("options"); add("correctOptionIndex"); add("explanation")
+            }
+        }
+
+        /** {"questions": [question]} */
         val QUESTION_SCHEMA: JsonObject = buildJsonObject {
             put("type", "OBJECT")
             putJsonObject("properties") {
                 putJsonObject("questions") {
                     put("type", "ARRAY")
-                    putJsonObject("items") {
-                        put("type", "OBJECT")
-                        putJsonObject("properties") {
-                            putJsonObject("statement") { put("type", "STRING") }
-                            putJsonObject("scenario") { put("type", "STRING"); put("nullable", true) }
-                            putJsonObject("options") {
-                                put("type", "ARRAY")
-                                putJsonObject("items") { put("type", "STRING") }
-                                put("minItems", 4)
-                                put("maxItems", 4)
-                            }
-                            putJsonObject("correctOptionIndex") { put("type", "INTEGER") }
-                            putJsonObject("explanation") { put("type", "STRING") }
-                        }
-                        putJsonArray("required") {
-                            add("statement"); add("options"); add("correctOptionIndex"); add("explanation")
-                        }
-                        putJsonArray("propertyOrdering") {
-                            add("scenario"); add("statement"); add("options"); add("correctOptionIndex"); add("explanation")
-                        }
-                    }
+                    put("items", questionObject())
                 }
             }
             putJsonArray("required") { add("questions") }
+        }
+
+        /** {"reviews": [{index, verdict: ok|corregir|descartar, reason, question?}]} */
+        val REVIEW_SCHEMA: JsonObject = buildJsonObject {
+            put("type", "OBJECT")
+            putJsonObject("properties") {
+                putJsonObject("reviews") {
+                    put("type", "ARRAY")
+                    putJsonObject("items") {
+                        put("type", "OBJECT")
+                        putJsonObject("properties") {
+                            putJsonObject("index") { put("type", "INTEGER") }
+                            putJsonObject("verdict") {
+                                put("type", "STRING")
+                                putJsonArray("enum") { add("ok"); add("corregir"); add("descartar") }
+                            }
+                            putJsonObject("reason") { put("type", "STRING") }
+                            put("question", questionObject(nullable = true))
+                        }
+                        putJsonArray("required") { add("index"); add("verdict") }
+                        putJsonArray("propertyOrdering") { add("index"); add("verdict"); add("reason"); add("question") }
+                    }
+                }
+            }
+            putJsonArray("required") { add("reviews") }
         }
     }
 }

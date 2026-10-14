@@ -10,6 +10,7 @@ import com.fuerzasalvaje.senda.domain.model.Project
 import com.fuerzasalvaje.senda.domain.model.localPdfPath
 import com.fuerzasalvaje.senda.domain.repository.DocumentStorage
 import com.fuerzasalvaje.senda.domain.repository.EvaluationRepository
+import com.fuerzasalvaje.senda.domain.repository.QuestionPrefetcher
 import com.fuerzasalvaje.senda.domain.repository.StudyBlockRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -28,15 +29,31 @@ class ObserveEvaluationsUseCase @Inject constructor(private val repository: Eval
 /** Result of a save: [courseWeightTotal] is set when the course weights exceed 100 % (D-4). */
 data class SaveOutcome(val courseWeightTotal: Double? = null)
 
-/** Creates or edits an evaluation. Exceeding 100 % in the course only warns (D-4). */
-class SaveEvaluationUseCase @Inject constructor(private val repository: EvaluationRepository) {
+/**
+ * Creates or edits an evaluation. Exceeding 100 % in the course only warns (D-4). When an exam or lab gets new
+ * study material (syllabus text or PDF), questions for its course start being prepared in the background.
+ */
+class SaveEvaluationUseCase @Inject constructor(
+    private val repository: EvaluationRepository,
+    private val prefetcher: QuestionPrefetcher = QuestionPrefetcher.None,
+) {
     suspend operator fun invoke(evaluation: Evaluation): Result<SaveOutcome> {
-        val otherWeights = repository.observeByCourse(evaluation.courseId).first()
-            .filter { it.id != evaluation.id }
-            .map { it.weightPercent }
+        val courseEvaluations = repository.observeByCourse(evaluation.courseId).first()
+        val otherWeights = courseEvaluations.filter { it.id != evaluation.id }.map { it.weightPercent }
+        val previous = courseEvaluations.firstOrNull { it.id == evaluation.id } ?: repository.observeById(evaluation.id).first()
         return repository.save(evaluation).map {
+            val material = materialKey(evaluation)
+            if (material != null && material != previous?.let(::materialKey)) prefetcher.refill(evaluation.courseId, fresh = true)
             SaveOutcome(Validators.courseWeightTotalIfExceeded(otherWeights, evaluation.weightPercent))
         }
+    }
+
+    /** What the AI would study from this evaluation; null when it gives nothing to generate from. */
+    private fun materialKey(evaluation: Evaluation): String? = when (evaluation) {
+        is Exam -> "${evaluation.syllabus.trim()}|${evaluation.syllabusPdfPath.orEmpty()}"
+            .takeIf { evaluation.syllabus.isNotBlank() || evaluation.syllabusPdfPath != null }
+        is Lab -> evaluation.guidePdfPath
+        is Project -> null
     }
 
     /** Course total for the form warning before saving. */

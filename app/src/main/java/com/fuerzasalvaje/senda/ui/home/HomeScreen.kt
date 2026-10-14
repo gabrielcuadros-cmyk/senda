@@ -1,0 +1,165 @@
+package com.fuerzasalvaje.senda.ui.home
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.EventAvailable
+import androidx.compose.material.icons.rounded.School
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.fuerzasalvaje.senda.domain.engine.PriorityItem
+import com.fuerzasalvaje.senda.domain.model.Project
+import com.fuerzasalvaje.senda.ui.components.ConflictBanner
+import com.fuerzasalvaje.senda.ui.components.DifficultyStars
+import com.fuerzasalvaje.senda.ui.components.EmptyState
+import com.fuerzasalvaje.senda.ui.components.EvaluationDetailSheet
+import com.fuerzasalvaje.senda.ui.components.Formats
+import com.fuerzasalvaje.senda.ui.components.Pill
+import com.fuerzasalvaje.senda.ui.components.PriorityBadge
+import com.fuerzasalvaje.senda.ui.components.ProgressRing
+import com.fuerzasalvaje.senda.ui.components.SendaCard
+import com.fuerzasalvaje.senda.ui.components.icon
+import com.fuerzasalvaje.senda.ui.components.label
+import com.fuerzasalvaje.senda.ui.theme.SendaTheme
+
+@Composable
+fun HomeScreen(
+    onCreateCourse: () -> Unit,
+    onCreateEvaluation: () -> Unit,
+    onEditEvaluation: (String) -> Unit,
+    viewModel: HomeViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val zone = viewModel.zone
+
+    if (state.loading) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+
+    LazyColumn(
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Column {
+                Text(
+                    if (state.firstName.isBlank()) "${state.greeting}!" else "${state.greeting}, ${state.firstName}!",
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+                state.today?.let {
+                    Text(Formats.fullDate(it), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
+        if (state.courses.isEmpty()) {
+            item {
+                EmptyState(
+                    icon = Icons.Rounded.School,
+                    title = "Empecemos por tus cursos",
+                    message = "Registra tu primer curso con su horario. Luego agrega sus exámenes, laboratorios y proyectos.",
+                    actionLabel = "Crear mi primer curso",
+                    onAction = onCreateCourse,
+                )
+            }
+            return@LazyColumn
+        }
+
+        item { WeeklyProgressCard(state) }
+        if (state.conflicts.isNotEmpty()) item { ConflictBanner(state.conflicts) }
+
+        item { Text("Tus prioridades", style = MaterialTheme.typography.titleLarge) }
+        if (state.priorities.isEmpty()) {
+            item {
+                EmptyState(
+                    icon = Icons.Rounded.EventAvailable,
+                    title = if (state.hasEvaluations) "¡Todo al día!" else "Sin evaluaciones aún",
+                    message = if (state.hasEvaluations) "No tienes evaluaciones pendientes." else "Registra tu primera evaluación con el botón +.",
+                    actionLabel = if (state.hasEvaluations) null else "Nueva evaluación",
+                    onAction = onCreateEvaluation,
+                )
+            }
+        } else {
+            items(state.priorities, key = { it.evaluation.id }) { item ->
+                PriorityCard(item, courseName = state.courseOf(item.evaluation)?.name, onClick = { viewModel.open(item.evaluation) })
+            }
+        }
+    }
+
+    state.selected?.let { evaluation ->
+        EvaluationDetailSheet(
+            evaluation = evaluation,
+            course = state.courseOf(evaluation),
+            zone = zone,
+            onDismiss = viewModel::close,
+            onEdit = { viewModel.close(); onEditEvaluation(evaluation.id) },
+            onStatus = { viewModel.setStatus(evaluation, it) },
+            onPhaseStatus = { phase, status -> (evaluation as? Project)?.let { viewModel.setPhaseStatus(it, phase.id, status) } },
+            conflicts = state.conflicts.filter { conflict -> conflict.entries.any { it.evaluation.id == evaluation.id } },
+        )
+    }
+}
+
+@Composable
+private fun WeeklyProgressCard(state: HomeUiState) {
+    SendaCard(Modifier.fillMaxWidth(), containerColor = MaterialTheme.colorScheme.primaryContainer) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ProgressRing(fraction = state.progress.fraction, caption = "esta semana")
+            Spacer(Modifier.width(16.dp))
+            Column {
+                Text("Avance semanal", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (state.progress.total == 0) "No tienes evaluaciones esta semana."
+                    else "${state.progress.completed} de ${state.progress.total} completadas",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PriorityCard(item: PriorityItem, courseName: String?, onClick: () -> Unit) {
+    val evaluation = item.evaluation
+    SendaCard(onClick = onClick, containerColor = SendaTheme.colors.forType(evaluation.type), modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Pill(evaluation.type.label, MaterialTheme.colorScheme.surface, icon = evaluation.type.icon)
+            Spacer(Modifier.weight(1f))
+            PriorityBadge(item.normalizedScore, item.isOverdue)
+        }
+        Spacer(Modifier.padding(top = 6.dp))
+        Text(
+            item.phase?.let { "${evaluation.title} · ${it.name}" } ?: evaluation.title,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        courseName?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                item.timeLabel,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (item.isOverdue) SendaTheme.colors.hard else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            DifficultyStars(evaluation.difficulty)
+        }
+    }
+}
